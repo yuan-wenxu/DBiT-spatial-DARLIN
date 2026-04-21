@@ -36,7 +36,7 @@ ipython = ">=8.12.3, <9"
 patchify = ">=0.2.3, <0.3"
 fastremap = ">=1.15.1, <2"
 roifile = ">=2023.5.12, <2024"
-torch = ">=2.4.1, <3"
+torch = { version = ">=2.4.1, <3", index = "https://download.pytorch.org/whl/cpu" }
 
 [environments]
 dbit = ["dbit"]

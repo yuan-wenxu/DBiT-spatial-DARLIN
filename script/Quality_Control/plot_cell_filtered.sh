@@ -69,12 +69,11 @@ long_args=("$@")
 # Parse short options
 set -- "${short_args[@]}"
 OPTIND=1
-while getopts "c:d:a:b:w:h" opt; do
+while getopts "c:d:a:w:h" opt; do
     case $opt in
         c) cell_number_file=$OPTARG ;;
         d) mrna_dir=$OPTARG ;;
         a) amp_dir=$OPTARG ;;
-        b) darlin_from_bam_dir=$OPTARG ;;
         w) whitelist_path=$OPTARG ;;
         h) show_help; exit 0 ;;
         ?) echo "Invalid option: -$OPTARG" >&2

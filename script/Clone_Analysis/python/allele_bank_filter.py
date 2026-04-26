@@ -123,14 +123,18 @@ def load_or_analyze_sequences(
         print(
             f"{prefix}Running analyze_sequences on {len(missing_sequences)} unique sequences..."
         )
-        result_obj = analyze_sequences(
-            missing_sequences,
-            config=config,
-            min_sequence_length=min_sequence_length,
-            verbose=False,
-        )
-        analyzed_rows = result_obj.to_df()
-        _ensure_analysis_columns(analyzed_rows, cache_file)
+        try:
+            result_obj = analyze_sequences(
+                missing_sequences,
+                config=config,
+                min_sequence_length=min_sequence_length,
+                verbose=False,
+            )
+            analyzed_rows = result_obj.to_df()
+            _ensure_analysis_columns(analyzed_rows, cache_file)
+        except Exception as exc:
+            print(f"{prefix}analyze_sequences failed ({exc}), returning empty results.")
+            analyzed_rows = pd.DataFrame(columns=["query", "mutations"])
 
     combined = pd.concat([cached_rows, analyzed_rows], ignore_index=True)
     if combined.empty:

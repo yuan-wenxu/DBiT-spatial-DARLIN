@@ -18,8 +18,8 @@ Optional (at least one of the two groups below):
 Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
   --x_spots_number <num>            Number of spots in x direction (default: 50)
   --y_spots_number <num>            Number of spots in y direction (default: 50)
-  --length_spot <num>               Length of each spot in pixels (default: 50)
-  --interval <num>                  Interval between spots in pixels (default: 50)
+  --length_spot <num>               Length of each spot in pixels (default: 20)
+  --interval <num>                  Interval between spots in pixels (default: 20)
   --pixel_length <float>            Length of each pixel in microns (default: 0.294)
 
 Other Options:
@@ -52,8 +52,8 @@ merge_with_gray() {
 # Spatial/Plot Options
 x_spots_number=${x_spots_number:-50}
 y_spots_number=${y_spots_number:-50}
-length_spot=${length_spot:-50}
-interval=${interval:-50}
+length_spot=${length_spot:-20}
+interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 
 # Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.

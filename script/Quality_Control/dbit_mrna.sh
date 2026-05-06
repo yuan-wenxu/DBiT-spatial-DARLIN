@@ -41,8 +41,8 @@ mRNA QC Options:
   --min_cells <num>                 Minimum number of cells per gene (default: 3)
   --x_spots_number <num>            Number of spots in x direction (default: 50)
   --y_spots_number <num>            Number of spots in y direction (default: 50 )
-  --length_spot <num>               Length of each spot in pixels (default: 50)
-  --interval <num>                  Interval between spots in pixels (default: 50)
+  --length_spot <num>               Length of each spot in pixels (default: 20)
+  --interval <num>                  Interval between spots in pixels (default: 20)
   --pixel_length <float>            Length of each pixel in microns (default: 0.294)
 
 Other Options:
@@ -87,8 +87,8 @@ gene_min=${gene_min:-300}
 min_cells=${min_cells:-3}
 x_spots_number=${x_spots_number:-50}
 y_spots_number=${y_spots_number:-50}
-length_spot=${length_spot:-50}
-interval=${interval:-50}
+length_spot=${length_spot:-20}
+interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 
 # Short options

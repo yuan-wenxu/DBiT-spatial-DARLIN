@@ -15,11 +15,11 @@ Run the clone analysis pipeline in this order:
 
 Required Arguments:
   -i, --input_dir <dir>             Path containing CA/RA/TA subdirectories
+  -b, --bank-dir <dir>              Allele bank directory
 
 Other Options:
     --labels <label...>               Labels to process (default: CA RA TA)
     --output-dir <dir>                Output directory (default: input_dir)
-    --bank-dir <dir>                  Allele bank directory
     --min-sequence-length <int>       Minimum sequence length for allele analysis
     --distance-unit <spot|um>         Distance unit for distance analysis
     --length-spot <num>               Spot size in um
@@ -38,7 +38,6 @@ EOF
 # Set default values
 labels=("CA" "RA" "TA")
 output_dir=""
-bank_dir="/mnt/dbit/data/reference/allele_bank"
 min_sequence_length=20
 distance_unit="um"
 length_spot=20
@@ -69,9 +68,10 @@ long_args=("$@")
 # Parse short options
 set -- "${short_args[@]}"
 OPTIND=1
-while getopts "i:h" opt; do
+while getopts "i:b:h" opt; do
     case $opt in
         i) input_dir=$OPTARG ;;
+        b) bank_dir=$OPTARG ;;
         h) show_help; exit 0 ;;
         ?) echo "Invalid option: -$OPTARG" >&2
             echo "Use -h or --help for usage information" >&2

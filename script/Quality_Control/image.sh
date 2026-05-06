@@ -14,8 +14,8 @@ Required Arguments:
 Image Processing Options:
   --x_spots_number <num>      Number of spots in x direction (default: 50)
   --y_spots_number <num>      Number of spots in y direction (default: 50)
-  --length_spot <num>         Length of each spot in μm (default: 50)
-  --interval <num>            Interval between two adjacent spots in μm (default: 50)
+  --length_spot <num>         Length of each spot in μm (default: 20)
+  --interval <num>            Interval between two adjacent spots in μm (default: 20)
   --pixel_length <float>      Length of each pixel in μm (default: 0.294)
   --put_text <bool>           Whether to put text on the image (True/False, yes/no, 1/0) (default: True)
   --font_size <num>           Font size of the text (default: 1)
@@ -49,8 +49,8 @@ image_name=${image_name:-align.png}
 # Image Processing Options
 x_spots_number=${x_spots_number:-50}
 y_spots_number=${y_spots_number:-50}
-length_spot=${length_spot:-50}
-interval=${interval:-50}
+length_spot=${length_spot:-20}
+interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 put_text=${put_text:-True}
 font_size=${font_size:-1}

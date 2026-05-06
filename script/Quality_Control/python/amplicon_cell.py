@@ -43,8 +43,8 @@ if __name__ == '__main__':
     parser.add_argument('-w', '--whitelist_path', type=str, help='whitelist file')
     parser.add_argument('--x_spots_number', type=int, default=50, help='Number of spots in x direction')
     parser.add_argument('--y_spots_number', type=int, default=50, help='Number of spots in y direction')
-    parser.add_argument('--length_spot', type=int, default=50, help='Length of each spot in pixels')
-    parser.add_argument('--interval', type=int, default=50, help='Interval between spots in pixels')
+    parser.add_argument('--length_spot', type=int, default=20, help='Length of each spot in pixels')
+    parser.add_argument('--interval', type=int, default=20, help='Interval between spots in pixels')
     parser.add_argument('--pixel_length', type=float, default=0.294, help='Length of each pixel in microns')
     args = parser.parse_args()
 

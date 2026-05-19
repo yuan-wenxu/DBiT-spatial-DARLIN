@@ -25,6 +25,7 @@ Preprocessing Options:
     --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
     --use_linker1 <bool>             Use linker 1 for barcode correction (True/False) (default: False)
     --bc_max_dist <num>              Maximum distance for barcode correction (default: 1)
+    --scratch <path>                 Path to scratch directory for intermediate files (optional)
 
 DARLIN Correction Options:
   --umi_hd_threshold <num>            Edit-distance threshold for UMI clustering within each SR (default: 1)
@@ -58,6 +59,7 @@ tn5=${tn5:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 mm_rate=${mm_rate:-0.05}
 use_linker1=${use_linker1:-False}
 bc_max_dist=${bc_max_dist:-1}
+scratch=${scratch:-}
 
 # DARLIN Correction Options
 umi_hd_threshold=${umi_hd_threshold:-1}
@@ -106,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --mm_rate) mm_rate=$2; shift 2 ;;
         --use_linker1) use_linker1=$2; shift 2 ;;
         --bc_max_dist) bc_max_dist=$2; shift 2 ;;
+        --scratch) scratch=$2; shift 2 ;;
         # DARLIN Correction Options
         --umi_hd_threshold) umi_hd_threshold=$2; shift 2 ;;
         --lb_error_rate) lb_error_rate=$2; shift 2 ;;
@@ -124,7 +127,17 @@ if [ -z "$reads_dir" ] || [ -z "$output_path" ]; then
     exit 1
 fi
 
-file_path=$output_path/$reads_dir
+if [ -n "$scratch" ]; then
+    scratch_input="$scratch/input"
+    scratch_output="$scratch/output"
+    mkdir -p "$scratch_input" "$scratch_output"
+    cp -r "$output_path/$reads_dir"/* "$scratch_input/"
+    orig_output_path="$output_path"
+    file_path="$scratch_input"
+    output_path="$scratch_output"
+else
+    file_path="$output_path/$reads_dir"
+fi
 
 for r1 in $file_path/*_R1.fq.gz; do
     sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
@@ -146,8 +159,8 @@ for r1 in $file_path/*_R1.fq.gz; do
 
     tmp_path=$(tail -n 1 $output_path/${sample_name}_preprocess.log)
 
-    mkdir -p $output_path/results/$nonlocus_sample_name/$locus
     results=$output_path/results/$nonlocus_sample_name/$locus
+    mkdir -p "$results"
 
     python ./python/amplicon.py \
         -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
@@ -164,3 +177,8 @@ for r1 in $file_path/*_R1.fq.gz; do
         -w "$whitelist_path" \
         -o "$results"
 done
+
+if [ -n "$scratch" ]; then
+    cp -r "$scratch_output"/* "$orig_output_path"/
+    rm -rf "$scratch"
+fi

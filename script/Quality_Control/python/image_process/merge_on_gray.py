@@ -11,7 +11,6 @@ For each *_filtered.png found under --search-dir the script will:
   4. Save as merged_<original_filename> in the same directory.
 """
 import argparse
-import glob
 import os
 from pathlib import Path
 

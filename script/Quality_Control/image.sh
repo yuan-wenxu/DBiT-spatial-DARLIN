@@ -3,9 +3,9 @@
 # Show help
 show_help() {
     cat << EOF
-Usage: $0 -i <image_path> -r <result_path> [OPTIONS]
+Usage: $0 -i <image_name> -r <result_path> [OPTIONS]
 
-Process image and perform cell segmentation using Cellpose.
+Process image and perform cell segmentation using StarDist.
 
 Required Arguments:
   -i, --image_name <path>         Path to input image file (required) (relative to result_path) (default: align.png)
@@ -19,20 +19,16 @@ Image Processing Options:
   --pixel_length <float>      Length of each pixel in μm (default: 0.294)
   --put_text <bool>           Whether to put text on the image (True/False, yes/no, 1/0) (default: True)
   --font_size <num>           Font size of the text (default: 1)
+  --scratch <path>            Path to scratch directory for intermediate files (optional)
 
-Cellpose Quality Control Options:
+StarDist Quality Control Options:
   --top_value <num>              Top value threshold for image quality check (default: 50)
   --number_of_top_values <num>   Number of top values to check (default: 1500)
 
-Cellpose Detection Options:
-  --dmin <num>                Minimum cell diameter in pixels (default: 20)
-  --dmax <num>                Maximum cell diameter in pixels (default: 50)
-  --step <num>                Step size for diameter search (default: 10)
-  --cutoff <num>              Minimum size for cell detection (default: 75)
-
-Cellpose Image Processing Options:
-  --photo_size <num>          Image tile size for processing in pixels (default: 170)
-  --photo_step <num>          Step size for image tiling in pixels (default: 170)
+StarDist Detection Options:
+  --model <num>                Pretrained model name (default: 2D_versatile_fluo)
+  --prob_thresh <num>          Detection probability threshold (default: 0.5)
+  --nms_thresh <num>           NMS IoU threshold (default: 0.6)
 
 Other Options:
   -h, --help                      Show this help message and exit
@@ -55,19 +51,15 @@ pixel_length=${pixel_length:-0.294}
 put_text=${put_text:-True}
 font_size=${font_size:-1}
 
-# Cellpose Quality Control Options
+# StarDist Quality Control Options
 top_value=${top_value:-50}
 number_of_top_values=${number_of_top_values:-1500}
 
-# Cellpose Detection Options
-dmin=${dmin:-20}
-dmax=${dmax:-50}
-step=${step:-10}
-cutoff=${cutoff:-75}
-
-# Cellpose Image Processing Options
-photo_size=${photo_size:-170}
-photo_step=${photo_step:-170}
+# StarDist Detection Options
+model_name=${model_name:-2D_versatile_fluo}
+prob_thresh=${prob_thresh:-0.5}
+nms_thresh=${nms_thresh:-0.6}
+cutoff=${cutoff:-100}
 
 # Short options
 short_args=()
@@ -106,16 +98,15 @@ while [[ $# -gt 0 ]]; do
         --pixel_length) pixel_length=$2; shift 2 ;;
         --put_text) put_text=$2; shift 2 ;;
         --font_size) font_size=$2; shift 2 ;;
-        # Cellpose Quality Control Options
+        --scratch) scratch=$2; shift 2 ;;
+        # StarDist Quality Control Options
         --top_value) top_value=$2; shift 2 ;;
         --number_of_top_values) number_of_top_values=$2; shift 2 ;;
-        # Cellpose Detection Options
-        --dmin) dmin=$2; shift 2 ;;
-        --dmax) dmax=$2; shift 2 ;;
-        --step) step=$2; shift 2 ;;
-        # Cellpose Image Processing Options
-        --photo_size) photo_size=$2; shift 2 ;;
-        --photo_step) photo_step=$2; shift 2 ;;
+        # StarDist Detection Options
+        --model) model_name=$2; shift 2 ;;
+        --prob_thresh) prob_thresh=$2; shift 2 ;;
+        --nms_thresh) nms_thresh=$2; shift 2 ;;
+        --cutoff) cutoff=$2; shift 2 ;;
         # Other Options
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -130,24 +121,39 @@ if [ -z "$image_name" ] || [ -z "$result_path" ]; then
 fi
 
 
-conda run -n py38 python ./python/image.py \
-    -ip "$result_path/$image_name" \
-    -r "$result_path" \
-    -x "$x_spots_number" \
-    -y "$y_spots_number" \
-    -p "$pixel_length" \
-    -l "$length_spot" \
-    -i "$interval" \
-    -t "$put_text" \
-    -fs "$font_size" \
-    -top_value "$top_value" \
-    -number_of_top_values "$number_of_top_values" \
-    -dmin "$dmin" \
-    -dmax "$dmax" \
-    -step "$step" \
-    -photo_size "$photo_size" \
-    -photo_step "$photo_step"
+if [ -n "$scratch" ]; then
+    mkdir -p "$scratch/image"
+    mkdir -p "$scratch/result"
+    cp "$result_path/$image_name" "$scratch/image/$image_name"
+    run_image_path="$scratch/image/$image_name"
+    run_result_path="$scratch/result"
+else
+    run_image_path="$result_path/$image_name"
+    run_result_path="$result_path"
+fi
 
-conda run -n py38 python ./python/cell_filter.py \
-    -f "$result_path" \
-    -c "$cutoff"
+conda run -n stardist --no-capture-output python ./python/stardist_segment.py \
+  -ip "$run_image_path" \
+  -r "$run_result_path" \
+  --x_spots_number $x_spots_number \
+  --y_spots_number $y_spots_number \
+  --length_spot $length_spot \
+  --interval $interval \
+  --pixel_length $pixel_length \
+  --put_text $put_text \
+  --font_size $font_size \
+  --top_value $top_value \
+  --number_of_top_values $number_of_top_values \
+  -m $model_name \
+  -pt $prob_thresh \
+  -nt $nms_thresh
+
+conda run -n stardist --no-capture-output python ./python/cell_filter.py \
+  -f "$run_result_path" \
+  -c $cutoff
+
+if [ -n "$scratch" ]; then
+    cp -r "$scratch/result"/* "$result_path/"
+    rm -rf "$scratch/image"
+    rm -rf "$scratch/result"
+fi

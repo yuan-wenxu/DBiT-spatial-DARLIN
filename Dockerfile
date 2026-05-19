@@ -28,13 +28,11 @@ RUN conda config --add channels bioconda \
     fastp==1.0.1 \
     bio==1.8.1 \
     seqtk==1.5 \
- && conda create -n py38 python=3.8 -y \
- && /root/miniconda3/envs/py38/bin/pip install \
-    stereopy \
-    opencv-python-headless==4.13.0.90 \
-    ipython==8.12.3 \
-    patchify==0.2.3 \
-    fastremap==1.15.1 \
-    roifile==2023.5.12 \
-    torch==2.4.1+cpu --extra-index-url https://download.pytorch.org/whl \
+ && conda create -n stardist python=3.10 -y \
+ && /root/miniconda3/envs/stardist/bin/pip install \
+    tensorflow-cpu==2.21.0 \
+    stardist==0.9.2 \
+    imagecodecs==2025.3.30 \
+    pandas==2.3.3 \
+    opencv-python-headless==4.13.0.92 \
  && conda clean -afy

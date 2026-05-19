@@ -29,7 +29,7 @@ There are four shell scripts to process data from three modalities.
 ## 2. Image
 
 1. Extract the sampling area based on the transcriptome plot results.
-2. Cut the image according to the actual sampling area and use cellpose to predict the number of cells.
+2. Cut the image according to the actual sampling area and use stardist to predict the number of cells.
 
 ## 3. Amplicon
 

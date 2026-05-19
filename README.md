@@ -1,6 +1,6 @@
 ## DBiT-spatial-DARLIN
 
-Version 0.1.0
+Version 0.2.0
 
 This version only includes data quality control. And it can process data from three modalities. 
 
@@ -36,9 +36,9 @@ There are four shell scripts in the Quality Control folder
 
 ## 1. Environment
 
-Recommended: Python 3.8 for `image.sh`, Python 3.12 for others
+Recommended: Python 3.10 for `image.sh`, Python 3.12 for others
 
-We provide a Dockerfile and a Docker image (yuanwenxu/dbit:0.1.0). We also provide pixi.toml and pixi.lock.
+We provide a Dockerfile and a Docker image (yuanwenxu/dbit:0.2.0). We also provide pixi.toml and pixi.lock.
 
 ## 2. Quick Start
 

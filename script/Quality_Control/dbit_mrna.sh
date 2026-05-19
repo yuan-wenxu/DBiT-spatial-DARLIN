@@ -13,12 +13,8 @@ Required Arguments:
 
 Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file
-  -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: False)
 
   Advanced options:
-    --locus <str>                    Locus name for cutadapt (default: CA)
-    --cores <num>                    Number of cores for cutadapt  (default: 8)
-    --base_quality <num>             Base quality score threshold (default: 10)
     --compression_level <num>        Compression level for gzip (default: 1)
     --linker1 <seq>                  Linker 1 sequence (default: CAAGCGTTGGCTTCTCGCATCT)
     --linker2 <seq>                  Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
@@ -26,6 +22,7 @@ Preprocessing Options:
     --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
     --use_linker1 <bool>             Use linker 1 for barcode correction (True/False) (default: False)
     --bc_max_dist <num>              Maximum distance for barcode correction (default: 1)
+    --scratch <path>                 Path to scratch directory for intermediate files (optional)
 
 STAR Alignment Options:
   --genome_dir <path>               Path to STAR genome index
@@ -73,6 +70,7 @@ tn5=${tn5:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 mm_rate=${mm_rate:-0.05}
 use_linker1=${use_linker1:-False}
 bc_max_dist=${bc_max_dist:-1}
+scratch=${scratch:-}
 
 # STAR Alignment Options
 star_threads=${star_threads:-10}
@@ -122,9 +120,6 @@ set -- "${long_args[@]}"
 while [[ $# -gt 0 ]]; do
     case $1 in
         # Preprocessing Advanced options
-        --locus) locus=$2; shift 2 ;;
-        --cores) cores=$2; shift 2 ;;
-        --base_quality) base_quality=$2; shift 2 ;;
         --compression_level) compression_level=$2; shift 2 ;;
         --linker1) linker1=$2; shift 2 ;;
         --linker2) linker2=$2; shift 2 ;;
@@ -132,6 +127,7 @@ while [[ $# -gt 0 ]]; do
         --mm_rate) mm_rate=$2; shift 2 ;;
         --use_linker1) use_linker1=$2; shift 2 ;;
         --bc_max_dist) bc_max_dist=$2; shift 2 ;;
+        --scratch) scratch=$2; shift 2 ;;
         # STAR Alignment Options
         --genome_dir) genome_dir=$2; shift 2 ;;
         --star_threads) star_threads=$2; shift 2 ;;
@@ -161,49 +157,101 @@ if [ -z "$reads_dir" ] || [ -z "$output_path" ]; then
     exit 1
 fi
 
-file_path=$output_path/$reads_dir
+orig_output_path="$output_path"
 
-mkdir -p $output_path
+mkdir -p "$output_path"
 
-for r1 in $file_path/*_R1.fq.gz; do
-    sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
-    r2=$file_path/$sample_name"_R2.fq.gz"
+for r1 in "$orig_output_path/$reads_dir"/*_R1.fq.gz; do
+    sample_name=$(basename "$r1" | sed 's/_R1.fq.gz//')
+    r2_orig="$orig_output_path/$reads_dir/${sample_name}_R2.fq.gz"
 
-    pre_file=("$output_path"/*barcode/${sample_name}_bc_match_R1.fq.gz)
-    log_file="$output_path/${sample_name}_preprocess.log"
+    log_file="$orig_output_path/${sample_name}_preprocess.log"
+    bam_file="$orig_output_path/results/$sample_name/Aligned.sortedByCoord.out.bam"
 
-    if ((${#pre_file[@]} > 0)) && [ -f "$log_file" ]; then
-        echo "Preprocessed file already exists: $pre_file"
+    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.fq.gz)
+    pre_done=false
+    star_done=false
+    if ((${#pre_file[@]} > 0)) && [ -f "$log_file" ]; then pre_done=true; fi
+    if [ -f "$bam_file" ]; then star_done=true; fi
+
+    use_scratch=false
+    if [ -n "$scratch" ]; then
+        use_scratch=true
+        scratch_sample="$scratch/$sample_name"
+        scratch_input="$scratch_sample/input"
+        scratch_output="$scratch_sample/output"
+    fi
+
+    # Step 1: preprocess (skip if already done)
+    if $pre_done; then
+        echo "Step1 preprocess already done for $sample_name, skipping..."
     else
-        # Extract UMI
+        if $use_scratch; then
+            mkdir -p "$scratch_input" "$scratch_output"
+            cp "$r1" "$r2_orig" "$scratch_input/"
+            step1_r1="$scratch_input/${sample_name}_R1.fq.gz"
+            step1_r2="$scratch_input/${sample_name}_R2.fq.gz"
+            step1_out="$scratch_output"
+            step1_log="$scratch_output/${sample_name}_preprocess.log"
+        else
+            step1_r1="$r1"
+            step1_r2="$r2_orig"
+            step1_out="$orig_output_path"
+            step1_log="$log_file"
+        fi
+
         python ./python/preprocess.py \
-            -r1 "$r1" -r2 "$r2" \
-            -o "$output_path" -s "$sample_name" \
+            -r1 "$step1_r1" -r2 "$step1_r2" \
+            -o "$step1_out" -s "$sample_name" \
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
             -l "$locus" -c "$cores" -q "$base_quality" \
             -cl "$compression_level" -cut "$cutadapt" \
             -l1 "$linker1" -l2 "$linker2" -tn5 "$tn5" \
             -m "$mm_rate" -ul1 "$use_linker1" \
-            -bc_max_dist "$bc_max_dist" &> "$log_file"
+            -bc_max_dist "$bc_max_dist" &> "$step1_log"
+
+        # Keep step1 outputs in original output path for future skip checks.
+        if $use_scratch; then
+            cp "$step1_log" "$log_file"
+            cp -r "$scratch_output"/*barcode "$orig_output_path"/ 2>/dev/null || true
+        fi
     fi
 
-    tmp_path=$(tail -n 1 $log_file)
-
-    # STARsolo
-    mkdir -p $output_path/results/$sample_name
-    results=$output_path/results/$sample_name
-
-    if [ -f "$results/Aligned.sortedByCoord.out.bam" ]; then
-        echo "STAR alignment already exists: $results/Aligned.sortedByCoord.out.bam"
+    # Resolve step2 input from existing/preprocessed files in original output path.
+    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.fq.gz)
+    if ((${#pre_file[@]} > 0)); then
+        pre_r1="${pre_file[0]}"
+        pre_r2="${pre_r1%_R1.fq.gz}_R2.fq.gz"
+        tmp_path="$(dirname "$pre_r1")"
     else
+        echo "Error: missing preprocess outputs for $sample_name, skip STAR."
+        if $use_scratch; then rm -rf "$scratch_sample"; fi
+        continue
+    fi
+
+    # Step 2: STAR (skip if already done)
+    if $star_done; then
+        echo "Step2 STAR already done for $sample_name, skipping..."
+    else
+        if $use_scratch; then
+            mkdir -p "$scratch_input" "$scratch_output"
+            cp "$pre_r1" "$pre_r2" "$scratch_input/"
+            star_input="$scratch_input"
+            star_results="$scratch_output/results/$sample_name"
+        else
+            star_input="$tmp_path"
+            star_results="$orig_output_path/results/$sample_name"
+        fi
+
+        mkdir -p "$star_results"
         STAR \
             --runMode alignReads \
             --runThreadN "$star_threads" \
             --genomeDir "$genome_dir" \
             --readFilesCommand zcat \
-            --readFilesIn "$tmp_path/${sample_name}_bc_match_R2.fq.gz" "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
-            --outFileNamePrefix "$results/" \
-            --outTmpDir "$results/solotmp" \
+            --readFilesIn "$star_input/${sample_name}_bc_match_R2.fq.gz" "$star_input/${sample_name}_bc_match_R1.fq.gz" \
+            --outFileNamePrefix "$star_results/" \
+            --outTmpDir "$star_results/solotmp" \
             --outSAMtype BAM SortedByCoordinate \
             --outSAMattributes NH HI AS nM CB UB GX GN \
             --soloType CB_UMI_Simple \
@@ -216,14 +264,25 @@ for r1 in $file_path/*_R1.fq.gz; do
             --soloCellFilter EmptyDrops_CR \
             --soloFeatures GeneFull \
             --bamRemoveDuplicatesType UniqueIdentical \
-            --quantMode GeneCounts &> "$results/STAR.log"
+            --quantMode GeneCounts &> "$star_results/STAR.log"
+
+        # Step3 is local only, so copy step2 results back first when using scratch.
+        if $use_scratch; then
+            mkdir -p "$orig_output_path/results/$sample_name"
+            cp -r "$star_results"/* "$orig_output_path/results/$sample_name"/
+        fi
     fi
-    
-    # mRNA analysis
-    python ./python/mrna.py -f "$results/Solo.out" -w "$whitelist_path" \
+
+    # Step 3: always run locally, no skip and no scratch.
+    final_results="$orig_output_path/results/$sample_name"
+    mkdir -p "$final_results"
+    python ./python/mrna.py -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \
-        --pixel_length "$pixel_length" &> "$results/Solo.out/qc.log"
-    
+        --pixel_length "$pixel_length" &> "$final_results/Solo.out/qc.log"
+
+    if $use_scratch; then
+        rm -rf "$scratch_sample"
+    fi
 done

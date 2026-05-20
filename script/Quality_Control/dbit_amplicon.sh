@@ -9,7 +9,7 @@ Process amplification sequencing data with preprocessing, DARLIN correction, and
 
 Required Arguments:
   -f, --reads_dir <dir>             Directory name containing R1/R2 fastq files (relative to output_path) (default: fastq)
-  -o, --output_path <dir>            Output directory path
+  -o, --output_path <dir>           Output directory path
 
 Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file

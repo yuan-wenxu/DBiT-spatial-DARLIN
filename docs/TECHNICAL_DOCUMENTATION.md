@@ -23,6 +23,12 @@ There are four shell scripts to process data from three modalities.
 ## 1. Transcriptome
 
 1. Extract spatial barcode and UMI based on sequence information.
+  
+    This is the structure of barcode and UMI.
+
+    ![Barcode and UMI structure](image/barcode.png)
+
+
 2. Using STARsolo to align transcriptome to genome.
 3. Cluster using Leiden algorithm and plot according to spatial location.
 
@@ -35,3 +41,4 @@ There are four shell scripts to process data from three modalities.
 
 1. Extract the DARLIN sequence. (optional)
 2. Extract spatial barcode and UMI based on sequence information.
+3. Correct DARLIN sequence.

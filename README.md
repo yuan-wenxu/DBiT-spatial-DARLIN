@@ -26,7 +26,7 @@ sample_name/
 
 Script directory: `script`
 
-Detailed technical documentation: [docs/TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md)
+Detailed technical documentation: [TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md)
 
 There are four shell scripts in the Quality Control folder
 1. `script/Quality_Control/dbit_mrna.sh` This script is used to process transcriptome data.
@@ -51,10 +51,10 @@ bash script.sh -h
 ```
 
 ### Execution order
-1. `script/Quality_Control/dbit_mrna.sh` This script will generate a `frame_umap.png`. Register this image onto the ssDNA staining image, then crop out the corresponding portion and name it `align.png`. 
+1. `script/Quality_Control/dbit_mrna.sh` This script will generate a `frame_umap.png`. Register this image onto the ssDNA staining image, then crop out the corresponding portion and name it `align.png`, convert to grayscale and name it `gray.png`. 
 2. `script/Quality_Control/image.sh` This script will segment `align.png` and predict the number of cells according to the predefined config.
 3. `script/Quality_Control/dbit_amplicon.sh` This script is used to process the amplicon; it only needs to be completed before step four.
-4. `script/Quality_Control/plot_cell_filtered.sh` Further processing of the data from the other two modalities was performed based on the cell number prediction results.
+4. `script/Quality_Control/plot_cell_filtered.sh` Further processing of the data from the other two modalities was performed based on the cell number prediction results. And this script also need `gray.png` to generate merge image. 
 
 ## 3. Output Directory Structure
 

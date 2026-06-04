@@ -19,11 +19,9 @@ Preprocessing Options:
     --cores <num>                    Number of cores for cutadapt  (default: 8)
     --base_quality <num>             Base quality score threshold (default: 10)
     --compression_level <num>        Compression level for gzip (default: 1)
-    --linker1 <seq>                  Linker 1 sequence (default: CAAGCGTTGGCTTCTCGCATCT)
+    --linker1 <seq>                  Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --linker2 <seq>                  Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
-    --tn5 <seq>                      Tn5 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
-    --use_linker1 <bool>             Use linker 1 for barcode correction (True/False) (default: False)
     --bc_max_dist <num>              Maximum distance for barcode correction (default: 1)
     --scratch <path>                 Path to scratch directory for intermediate files (optional)
 
@@ -53,11 +51,9 @@ cutadapt=${cutadapt:-False}
 cores=${cores:-8}
 base_quality=${base_quality:-10}
 compression_level=${compression_level:-1}
-linker1=${linker1:-CAAGCGTTGGCTTCTCGCATCT}
+linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
-tn5=${tn5:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 mm_rate=${mm_rate:-0.05}
-use_linker1=${use_linker1:-False}
 bc_max_dist=${bc_max_dist:-1}
 scratch=${scratch:-}
 
@@ -104,9 +100,7 @@ while [[ $# -gt 0 ]]; do
         --compression_level) compression_level=$2; shift 2 ;;
         --linker1) linker1=$2; shift 2 ;;
         --linker2) linker2=$2; shift 2 ;;
-        --tn5) tn5=$2; shift 2 ;;
         --mm_rate) mm_rate=$2; shift 2 ;;
-        --use_linker1) use_linker1=$2; shift 2 ;;
         --bc_max_dist) bc_max_dist=$2; shift 2 ;;
         --scratch) scratch=$2; shift 2 ;;
         # DARLIN Correction Options
@@ -153,8 +147,7 @@ for r1 in $file_path/*_R1.fq.gz; do
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
         -l "$locus" -c "$cores" -q "$base_quality" \
         -cl "$compression_level" -cut "$cutadapt" \
-        -l1 "$linker1" -l2 "$linker2" -tn5 "$tn5" \
-        -m "$mm_rate" -ul1 "$use_linker1" \
+        -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
         -bc_max_dist "$bc_max_dist" &> "$output_path/${sample_name}_preprocess.log"
 
     tmp_path=$(tail -n 1 $output_path/${sample_name}_preprocess.log)

@@ -92,49 +92,40 @@ class MatchResult:
     def __init__(self):
         self.linker1_matches = []
         self.linker2_matches = []
-        self.tn5_matches = []
         self.match_method = ""  # "exact", "fuzzy", "mixed", or "failed"
-        self.match_stats = [-1, -1, -1, -1]  # [all, linker1, linker2, tn5], 0 represents fuzzy, 1 represents exact
+        self.match_stats = [-1, -1, -1]  # [all, linker1, linker2], 0 represents fuzzy, 1 represents exact
 
-def find_all_matches(seq_str, linker1, linker2, tn5, linker1_mm, linker2_mm, tn5_mm, use_linker1):
+def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm):
     """
     Try exact matches first; fall back to fuzzy per element if needed.
     Require exactly one hit for each element.
     """
     result = MatchResult()
-    if use_linker1:
-        patterns = {'linker1': linker1, 'linker2': linker2, 'tn5': tn5}
-    else:
-        patterns = {'linker2': linker2, 'tn5': tn5}
+    patterns = {'linker1': linker1, 'linker2': linker2}
     exact = find_exact_matches(seq_str, patterns)
 
-    exact_success = (len(exact['linker2']) == 1 and len(exact['tn5']) == 1)
-    if use_linker1:
-        exact_success &= (len(exact['linker1']) == 1)
+    exact_success = (len(exact['linker1']) == 1 and len(exact['linker2']) == 1)
     if exact_success:
-        if use_linker1:
-            result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
+        result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
         result.linker2_matches = [type('Match', (), {'start': exact['linker2'][0], 'end': exact['linker2'][0] + len(linker2)})()]
-        result.tn5_matches = [type('Match', (), {'start': exact['tn5'][0], 'end': exact['tn5'][0] + len(tn5)})()]
         result.match_method = "exact"
-        result.match_stats = [1, -1, -1, -1]
+        result.match_stats = [1, -1, -1]
         return result
 
     mixed_success = True
     methods_used = []
 
     # linker1
-    if use_linker1:
-        if len(exact['linker1']) == 1:
-            result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
-            methods_used.append('exact')
-            result.match_stats[1] = 1
-        else:
-            result.linker1_matches = find_fuzzy_matches(seq_str, linker1, linker1_mm)
-            methods_used.append('fuzzy')
-            result.match_stats[1] = 0
-            if len(result.linker1_matches) != 1:
-                mixed_success = False
+    if len(exact['linker1']) == 1:
+        result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
+        methods_used.append('exact')
+        result.match_stats[1] = 1
+    else:
+        result.linker1_matches = find_fuzzy_matches(seq_str, linker1, linker1_mm)
+        methods_used.append('fuzzy')
+        result.match_stats[1] = 0
+        if len(result.linker1_matches) != 1:
+            mixed_success = False
 
     # linker2
     if mixed_success:
@@ -149,42 +140,25 @@ def find_all_matches(seq_str, linker1, linker2, tn5, linker1_mm, linker2_mm, tn5
             if len(result.linker2_matches) != 1:
                 mixed_success = False
 
-    # tn5    
-    if mixed_success:
-        if len(exact['tn5']) == 1:
-            result.tn5_matches = [type('Match', (), {'start': exact['tn5'][0], 'end': exact['tn5'][0] + len(tn5)})()]
-            methods_used.append('exact')
-            result.match_stats[3] = 1
-        else:
-            result.tn5_matches = find_fuzzy_matches(seq_str, tn5, tn5_mm)
-            methods_used.append('fuzzy')
-            result.match_stats[3] = 0
-            if len(result.tn5_matches) != 1:
-                mixed_success = False
     
     if mixed_success:
         result.match_method = "mixed" if 'fuzzy' in methods_used else "exact"
-        if use_linker1:
-            if result.match_stats[1] == 0 and result.match_stats[2] == 0 and result.match_stats[3] == 0:
-                result.match_stats = [0, -1, -1, -1]
-        else:
-            if result.match_stats[2] == 0 and result.match_stats[3] == 0:
-                result.match_stats = [0, -1, -1, -1]
+        if result.match_stats[1] == 0 and result.match_stats[2] == 0:
+            result.match_stats = [0, -1, -1]
     else:
         result.match_method = "failed"
         result.linker1_matches = []
         result.linker2_matches = []
-        result.tn5_matches = []
-        result.match_stats = [-1, -1, -1, -1]
+        result.match_stats = [-1, -1, -1]
 
     return result
 
-def extract_barcode(seq, qual, linker2_start, linker2_end, tn5_end):
+def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     """
     seq/qual are strings. Extract:
       - barcodeA: 8bp immediately after linker2
       - barcodeB: 8bp immediately before linker2
-      - umi: 10bp immediately after tn5
+      - umi: 10bp immediately after linker1
     """
     barcodeA = seq[linker2_end: linker2_end + 8]
     barcodeB = seq[linker2_start - 8: linker2_start]
@@ -192,8 +166,8 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, tn5_end):
     barcodeB_q = qual[linker2_start - 8: linker2_start]
     barcode = barcodeA + barcodeB
     barcode_q = barcodeA_q + barcodeB_q
-    umi = seq[tn5_end: tn5_end + 10]
-    umi_q = qual[tn5_end: tn5_end + 10]
+    umi = seq[linker1_end: linker1_end + 10]
+    umi_q = qual[linker1_end: linker1_end + 10]
     return barcode, umi, barcode_q, umi_q
 
 def correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map):
@@ -222,12 +196,10 @@ def write_seqrecord_to_fastq(record_id, seq, qual, f):
 
 class MatchConfig:
     # extract config
-    def __init__(self, linker1, linker2, tn5, mm_rate, use_linker1):
+    def __init__(self, linker1, linker2, mm_rate):
         self.linker1 = linker1
         self.linker2 = linker2
-        self.tn5 = tn5
         self.mm_rate = mm_rate
-        self.use_linker1 = use_linker1
 
 class BarcodeConfig:
     # barcode correction config
@@ -246,17 +218,11 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
 
     linker1_mm = get_mm_dist(match_config.linker1, match_config.mm_rate)
     linker2_mm = get_mm_dist(match_config.linker2, match_config.mm_rate)
-    tn5_mm = get_mm_dist(match_config.tn5, match_config.mm_rate)
 
     print("=" * 80)
     print(f"Processing {reads1} and {reads2}")
     print(f"Output files: {output_dir}/{sample}_bc_match_R1.fq.gz and {output_dir}/{sample}_bc_match_R2.fq.gz")
     print(f"Compression level: {compression_level}.")
-
-    if match_config.use_linker1:
-        print(f"Using linker 1 for barcode correction.")
-    else:
-        print(f"Not using linker 1 for barcode correction.")
 
     print("Buliding barcode correction maps...")
     bcA_wl = read_whitelist(barcode_config.barcodeA_whitelist)
@@ -273,13 +239,12 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
     with open_fastq_file(reads1) as r1_handle, open_fastq_file(reads2) as r2_handle:
         for (r1_id, r1_seq, r1_qual), (r2_id, r2_seq, r2_qual) in zip(iter_fastq_raw(r1_handle), iter_fastq_raw(r2_handle)):
             n_reads += 1        
-            match_result = find_all_matches(r1_seq, match_config.linker1, match_config.linker2, match_config.tn5, linker1_mm, linker2_mm, tn5_mm, match_config.use_linker1)
-            linker1_check = (len(match_result.linker1_matches) == 1) if match_config.use_linker1 else True
-            if (len(match_result.linker2_matches) == 1) and (len(match_result.tn5_matches) == 1) and linker1_check:
+            match_result = find_all_matches(r1_seq, match_config.linker1, match_config.linker2, linker1_mm, linker2_mm)
+            if (len(match_result.linker2_matches) == 1) and (len(match_result.linker1_matches) == 1):
                 linker2_start = match_result.linker2_matches[0].start
                 linker2_end = match_result.linker2_matches[0].end
-                tn5_end = match_result.tn5_matches[0].end
-                barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, tn5_end)
+                linker1_end = match_result.linker1_matches[0].end
+                barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
                 barcode = correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map)
                 if barcode is None:
                     continue
@@ -292,7 +257,7 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                 write_seqrecord_to_fastq(r1_id, new_seq, new_qual, out_r1)
                 # write matched R2: pass-through
                 write_seqrecord_to_fastq(r2_id, r2_seq, r2_qual, out_r2)
-            for i in range(4):
+            for i in range(3):
                 if match_result.match_stats[i] == 0:
                     fuzzy_match_stats[i] += 1
                 elif match_result.match_stats[i] == 1:
@@ -303,8 +268,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
 
     print(f"Processed {n_reads} reads, {n_reads_passed} reads passed.")
     print(f"Percenatge passed: {n_reads_passed / n_reads * 100:.2f}%")
-    print(f"Exact match stats: all exact = {exact_match_stats[0]}, linker1 exact = {exact_match_stats[1]}, linker2 exact = {exact_match_stats[2]}, tn5 exact = {exact_match_stats[3]}")
-    print(f"Fuzzy match stats: all fuzzy = {fuzzy_match_stats[0]}, linker1 fuzzy = {fuzzy_match_stats[1]}, linker2 fuzzy = {fuzzy_match_stats[2]}, tn5 fuzzy = {fuzzy_match_stats[3]}")
+    print(f"Exact match stats: all exact = {exact_match_stats[0]}, linker1 exact = {exact_match_stats[1]}, linker2 exact = {exact_match_stats[2]}")
+    print(f"Fuzzy match stats: all fuzzy = {fuzzy_match_stats[0]}, linker1 fuzzy = {fuzzy_match_stats[1]}, linker2 fuzzy = {fuzzy_match_stats[2]}")
     print(f"Overall time: {time.time() - overall_start_time:.2f} seconds.")
     print("=" * 80)
 
@@ -320,13 +285,11 @@ if __name__ == '__main__':
     argparser.add_argument('-o', '--output', type = str, help = 'Prefix of output fastq files')
 
     # optional arguments
-    argparser.add_argument('-l1', '--linker1', type = str, default = "CAAGCGTTGGCTTCTCGCATCT", help = 'Linker 1 sequence')
+    argparser.add_argument('-l1', '--linker1', type = str, default = "GTGGCCGATGTTTCGCATCGGCGTACGACT", help = 'Linker 1 sequence')
     argparser.add_argument('-l2', '--linker2', type = str, default = "ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help = 'Linker 2 sequence')
-    argparser.add_argument('-t', '--tn5', type = str, default = "GTGGCCGATGTTTCGCATCGGCGTACGACT", help = 'Tn5 sequence')
     argparser.add_argument('-m', '--mm_rate', type = float, default = 0.05, help = 'Mismatch rate for linker sequences')
-    argparser.add_argument('--compression_level', type = int, default = 1, help = 'Compression level for output fastq files')
+    argparser.add_argument('--compression_level', type = int, default = 6, help = 'Compression level for output fastq files')
     argparser.add_argument('--bc_max_dist', type = int, default = 1, help = 'Maximum distance for barcode correction')
-    argparser.add_argument('-ul1', '--use_linker1', type = bool, default = False, help = 'Use linker 1 for barcode correction')
 
     args = argparser.parse_args()
 
@@ -338,13 +301,11 @@ if __name__ == '__main__':
 
     linker1 = args.linker1  # linker 1 sequence
     linker2 = args.linker2  # linker 2 sequence
-    tn5 = args.tn5  # Tn5 sequence
     mm_rate = args.mm_rate  # 5% mismatch
     compression_level = args.compression_level  # compression level for output fastq files
     bc_max_dist = args.bc_max_dist  # maximum distance for barcode correction
-    use_linker1 = args.use_linker1  # use linker 1 for barcode correction
 
-    match_config = MatchConfig(linker1, linker2, tn5, mm_rate, use_linker1)
+    match_config = MatchConfig(linker1, linker2, mm_rate)
     barcode = BarcodeConfig(barcodeA_whitelist, barcodeB_whitelist, bc_max_dist)
 
     main(match_config, barcode, reads1, reads2, output_dir, compression_level)

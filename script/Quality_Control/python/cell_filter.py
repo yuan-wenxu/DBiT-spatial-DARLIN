@@ -24,7 +24,7 @@ def filter(file_path, cutoff):
     plt.title('Cell area distribution')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
     file['count'] = [sum(v >= cutoff for v in sublist) for sublist in file['area']]
     print(f'Cell number after filtering: {file["count"].sum()}')

@@ -1,12 +1,12 @@
 """
-Vertically flip *_filtered.png images and composite them onto gray.png.
+Transform *_filtered.png images and composite them onto gray.png.
 
 Usage:
-    python merge_on_gray.py --gray <gray.png> --search-dir <dir> [--recursive]
+    python merge_on_gray.py --gray <gray.png> --search-dir <dir> [--orientation <mode>] [--recursive]
 
 For each *_filtered.png found under --search-dir the script will:
-  1. Flip the image vertically.
-  2. Resize gray.png to match the flipped image.
+  1. Transform the image according to --orientation.
+  2. Resize gray.png to match the transformed image.
   3. Composite the RGBA overlay onto the gray background.
   4. Save as merged_<original_filename> in the same directory.
 """
@@ -17,6 +17,8 @@ from pathlib import Path
 from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = None 
 
+ORIENTATION_CHOICES = ("normal", "horizontal", "vertical", "rotate")
+
 def set_opacity(img: Image.Image, opacity: float) -> Image.Image:
     """Return a copy of img with its alpha channel scaled by opacity (0-1)."""
     r, g, b, a = img.split()
@@ -24,20 +26,38 @@ def set_opacity(img: Image.Image, opacity: float) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, a))
 
 
-def merge_on_gray(frame_path: str, gray_path: str) -> None:
+def normalize_orientation(value: str) -> str:
+    orientation = value.lower()
+    if orientation not in ORIENTATION_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"orientation must be one of {', '.join(ORIENTATION_CHOICES)}, got: {value}"
+        )
+    return orientation
+
+
+def transform_frame(frame: Image.Image, orientation: str) -> Image.Image:
+    if orientation == "horizontal":
+        return ImageOps.mirror(frame)
+    if orientation == "vertical":
+        return ImageOps.flip(frame)
+    if orientation == "rotate":
+        return frame.transpose(Image.Transpose.ROTATE_180)
+    return frame
+
+
+def merge_on_gray(frame_path: str, gray_path: str, orientation: str) -> None:
     frame = Image.open(frame_path).convert("RGBA")
+    frame_transformed = transform_frame(frame, orientation)
     if "umap" in frame_path:
-        frame_flipped = set_opacity(ImageOps.flip(frame), 0.7)
-    else:
-        frame_flipped = ImageOps.flip(frame)
+        frame_transformed = set_opacity(frame_transformed, 0.7)
 
     gray = Image.open(gray_path).convert("RGBA")
-    gray_resized = set_opacity(gray.resize(frame_flipped.size, resample=Image.LANCZOS), 0.7)
+    gray_resized = set_opacity(gray.resize(frame_transformed.size, resample=Image.LANCZOS), 0.7)
 
     # Black opaque background ensures the final image is fully opaque
-    black_bg = Image.new("RGBA", frame_flipped.size, (0, 0, 0, 255))
+    black_bg = Image.new("RGBA", frame_transformed.size, (0, 0, 0, 255))
     result = Image.alpha_composite(black_bg, gray_resized)
-    result = Image.alpha_composite(result, frame_flipped)
+    result = Image.alpha_composite(result, frame_transformed)
 
     out_dir = os.path.dirname(frame_path)
     out_name = "merged_" + os.path.basename(frame_path)
@@ -48,6 +68,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Flip and merge frame plots onto gray background.")
     parser.add_argument("--gray", required=True, help="Path to gray.png background image")
     parser.add_argument("--search-dir", required=True, help="Directory to search for *_filtered.png")
+    parser.add_argument("--orientation", type=normalize_orientation, default="normal", help="Transform overlay before merging: normal, horizontal, vertical, or rotate")
     parser.add_argument("--recursive", action="store_true", help="Search subdirectories recursively")
     args = parser.parse_args()
 
@@ -65,7 +86,7 @@ def main() -> None:
         return
 
     for p in sorted(matches):
-        merge_on_gray(str(p), args.gray)
+        merge_on_gray(str(p), args.gray, args.orientation)
         print(f"Merged: {p} -> merged_{p.name}")
 
 

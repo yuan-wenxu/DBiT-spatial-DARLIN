@@ -1,20 +1,20 @@
 bash dbit_amplicon.sh \
-    -o /path/to/sample_name/amplicon \
+    -f /path/to/sample_name/amplicon/fastq \
     -w ../../docs/barcodes/barcodes.tsv
 
 
 bash dbit_mrna.sh \
-    -o /path/to/sample_name/transcriptome \
+    -f /path/to/sample_name/transcriptome/fastq \
     -w ../../docs/barcodes/barcodes.tsv \
     --genome_dir /path/to/STAR_genome_index
 
 
 bash image.sh \
-    -r /path/to/sample_name/image
+    -i /path/to/sample_name/image/align.png
 
 
-bash plot_filtered.sh \
+bash plot_cell_filtered.sh \
     -c /path/to/sample_name/image/filtered_results.csv \
-    -d /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull \
+    -m /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull \
     -a /path/to/sample_name/amplicon/results/sample_name \
     -w ../../docs/barcodes/barcodes.tsv

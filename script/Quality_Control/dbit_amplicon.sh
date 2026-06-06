@@ -3,27 +3,29 @@
 # Show help message
 show_help() {
     cat << EOF
-Usage: $0 -f <reads_dir> -o <output_dir> -d <cutadapt> [OPTIONS]
+Usage: $0 -f <fastq_path> [-o <output_path>] [OPTIONS]
 
 Process amplification sequencing data with preprocessing, DARLIN correction, and visualization.
 
 Required Arguments:
-  -f, --reads_dir <dir>             Directory name containing R1/R2 fastq files (relative to output_path) (default: fastq)
-  -o, --output_path <dir>           Output directory path
+  -f, --fastq_path <dir>            Directory containing R1/R2 fastq files
+
+Output Options:
+  -o, --output_path <dir>           Output directory path (optional; default: parent directory of fastq_path)
 
 Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file
   -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: False)
 
   Advanced options:
-    --cores <num>                    Number of cores for cutadapt  (default: 8)
-    --base_quality <num>             Base quality score threshold (default: 10)
-    --compression_level <num>        Compression level for gzip (default: 1)
-    --linker1 <seq>                  Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
-    --linker2 <seq>                  Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
-    --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
-    --bc_max_dist <num>              Maximum distance for barcode correction (default: 1)
-    --scratch <path>                 Path to scratch directory for intermediate files (optional)
+    --cores <num>                     Number of cores for cutadapt  (default: 8)
+    --base_quality <num>              Base quality score threshold (default: 10)
+    --compression_level <num>         Compression level for gzip (default: 6)
+    --linker1 <seq>                   Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
+    --linker2 <seq>                   Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
+    --mm_rate <float>                 Mismatch rate for linker sequences (default: 0.05)
+    --bc_max_dist <num>               Maximum distance for barcode correction (default: 1)
+    --scratch <path>                  Path to scratch directory for intermediate files (optional)
 
 DARLIN Correction Options:
   --umi_hd_threshold <num>            Edit-distance threshold for UMI clustering within each SR (default: 1)
@@ -37,20 +39,22 @@ Other Options:
 
 Examples:
   # Basic usage
-  $0 -f reads -o /path/to/output -c True
+  $0 -f /path/to/fastq -c True
+
+  # Write results to a different directory
+  $0 -f /path/to/fastq -o /path/to/output -c True
 
 EOF
 }
 
 # Set default values
-reads_dir=${reads_dir:-fastq}
 # Preprocessing Options
 cutadapt=${cutadapt:-False}
 
 # Preprocessing Advanced options
 cores=${cores:-8}
 base_quality=${base_quality:-10}
-compression_level=${compression_level:-1}
+compression_level=${compression_level:-6}
 linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
 mm_rate=${mm_rate:-0.05}
@@ -63,6 +67,17 @@ lb_error_rate=${lb_error_rate:-0.02}
 major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+PYTHON_DIR="$SCRIPT_DIR/python"
+
+normalize_dir_path() {
+    local path="$1"
+    while [[ "$path" != "/" && "$path" == */ ]]; do
+        path="${path%/}"
+    done
+    printf '%s\n' "$path"
+}
 
 # Short options
 short_args=()
@@ -79,7 +94,7 @@ OPTIND=1
 
 while getopts "f:o:w:c:h" opt; do
     case $opt in
-        f) reads_dir=$OPTARG ;;
+        f) fastq_path=$OPTARG ;;
         o) output_path=$OPTARG ;;
         w) whitelist_path=$OPTARG ;;
         c) cutadapt=$OPTARG  ;;
@@ -94,6 +109,13 @@ done
 set -- "${long_args[@]}"
 while [[ $# -gt 0 ]]; do
     case $1 in
+        # Required Arguments
+        --fastq_path) fastq_path=$2; shift 2 ;;
+        # Output Options
+        --output_path) output_path=$2; shift 2 ;;
+        # Preprocessing Options
+        --whitelist) whitelist_path=$2; shift 2 ;;
+        --cutadapt) cutadapt=$2; shift 2 ;;
         # Preprocessing Advanced options
         --cores) cores=$2; shift 2 ;;
         --base_quality) base_quality=$2; shift 2 ;;
@@ -115,25 +137,45 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check required arguments
-if [ -z "$reads_dir" ] || [ -z "$output_path" ]; then
-    echo "Error: -f (reads_dir) and -o (output_path) are required" >&2
+if [ -z "$fastq_path" ]; then
+    echo "Error: -f (fastq_path) is required" >&2
     echo "Use -h or --help for usage information" >&2
     exit 1
 fi
+
+fastq_path=$(normalize_dir_path "$fastq_path")
+if [ -n "$output_path" ]; then
+    output_path=$(normalize_dir_path "$output_path")
+fi
+if [ -n "$scratch" ]; then
+    scratch=$(normalize_dir_path "$scratch")
+fi
+
+if [ ! -d "$fastq_path" ]; then
+    echo "Error: fastq directory does not exist: $fastq_path" >&2
+    exit 1
+fi
+
+if [ -z "$output_path" ]; then
+    output_path=$(dirname "$fastq_path")
+fi
+
+mkdir -p "$output_path"
 
 if [ -n "$scratch" ]; then
     scratch_input="$scratch/input"
     scratch_output="$scratch/output"
     mkdir -p "$scratch_input" "$scratch_output"
-    cp -r "$output_path/$reads_dir"/* "$scratch_input/"
+    cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"
     file_path="$scratch_input"
     output_path="$scratch_output"
 else
-    file_path="$output_path/$reads_dir"
+    file_path="$fastq_path"
 fi
 
-for r1 in $file_path/*_R1.fq.gz; do
+for r1 in "$file_path"/*_R1.fq.gz; do
+    [ -e "$r1" ] || { echo "Error: no *_R1.fq.gz files found in $file_path" >&2; exit 1; }
     sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
     locus=$(echo "$sample_name" | grep -oE 'CA|RA|TA')
     #locus=${sample_name: -2}
@@ -141,7 +183,7 @@ for r1 in $file_path/*_R1.fq.gz; do
     nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
 
     # Cutadapt and extract UMI and barcode
-    python ./python/preprocess.py \
+    python "$PYTHON_DIR/preprocess.py" \
         -r1 "$r1" -r2 "$r2" \
         -o "$output_path" -s "$sample_name" \
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -155,7 +197,7 @@ for r1 in $file_path/*_R1.fq.gz; do
     results=$output_path/results/$nonlocus_sample_name/$locus
     mkdir -p "$results"
 
-    python ./python/amplicon.py \
+    python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.fq.gz" \
         -o "$results" -d "$cutadapt" \
@@ -165,7 +207,7 @@ for r1 in $file_path/*_R1.fq.gz; do
         --reads_cutoff "$reads_cutoff" \
         --slope_cutoff "$slope_cutoff" &> "$results/dbit.log"
 
-    python ./python/plot/heatmap.py \
+    python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \
         -w "$whitelist_path" \
         -o "$results"

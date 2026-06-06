@@ -8,7 +8,6 @@ darlin = ['CA', 'RA', 'TA']
 
 def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_config):
     cell_number = pd.read_csv(cell_number_file, header = 0)
-    #cell_number['y'] = 49 - cell_number['y']
     for m in method:
         m_path = umi_gene + '/' + m
         data_path = m_path + '/' + 'data.csv'
@@ -36,15 +35,18 @@ def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_con
         plot_frame_filtered(merge_data, m_path, frame_config)
         
         for d in darlin:
-            d_path = m_path + '/' + d + '/' + f'{d}.csv'
-            darlin_data = pd.read_csv(d_path, header = 0)
-            darlin_merge = (darlin_data.merge(cell_number[['x', 'y', 'count']], on = ['x', 'y']).fillna(0))
-            darlin_merge = darlin_merge[darlin_merge['count'] > 0]
-            print(f"Spots number for {d}: {len(darlin_merge)}")
-            print(f"Total UMI for {d}: {np.sum(darlin_merge['umi_count'])}")
-            print(f'Darlin UMI per spot for {d}: {np.sum(darlin_merge["umi_count"])/len(merge_data)}')
-            plot_scatter(darlin_merge['count'], darlin_merge['umi_count'], m_path + '/' + d, umi_config)
-            darlin_merge.to_csv(m_path + '/' + d + '/' + f'{d}_cellfiltered.csv', index = False)
+            try:
+                d_path = m_path + '/' + d + '/' + f'{d}.csv'
+                darlin_data = pd.read_csv(d_path, header = 0)
+                darlin_merge = (darlin_data.merge(cell_number[['x', 'y', 'count']], on = ['x', 'y']).fillna(0))
+                darlin_merge = darlin_merge[darlin_merge['count'] > 0]
+                print(f"Spots number for {d}: {len(darlin_merge)}")
+                print(f"Total UMI for {d}: {np.sum(darlin_merge['umi_count'])}")
+                print(f'Darlin UMI per spot for {d}: {np.sum(darlin_merge["umi_count"])/len(merge_data)}')
+                plot_scatter(darlin_merge['count'], darlin_merge['umi_count'], m_path + '/' + d, umi_config)
+                darlin_merge.to_csv(m_path + '/' + d + '/' + f'{d}_cellfiltered.csv', index = False)
+            except:
+                print(f"{d} data not found in {m} method.")
         print('\n')
 
         

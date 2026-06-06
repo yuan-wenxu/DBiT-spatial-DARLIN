@@ -7,7 +7,6 @@ darlin = ['CA', 'RA', 'TA']
 
 def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config):
     cell_number = pd.read_csv(cell_number_file, header = 0)
-    #cell_number['y'] = 49 - cell_number['y']
     whitelist = [line.strip() for line in open(whitelist_path).readlines()]
     for d in darlin:
         darlin_file = darlin_path + '/' + d + '/' + 'final.csv'

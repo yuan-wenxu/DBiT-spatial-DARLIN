@@ -3,19 +3,21 @@
 # Show help
 show_help() {
     cat << EOF
-Usage: $0 -f <reads_dir> -o <output_dir> [OPTIONS]
+Usage: $0 -f <fastq_path> [-o <output_dir>] [OPTIONS]
 
 Process mRNA sequencing data with preprocessing, STAR alignment, and quality control.
 
 Required Arguments:
-  -f, --reads_dir <dir>             Directory name containing R1/R2 fastq files (relative to output_dir) (default: fastq)
-  -o, --output_path <dir>           Output directory path
+  -f, --fastq_path <dir>            Directory containing R1/R2 fastq files
+
+Output Options:
+  -o, --output_path <dir>           Output directory path (optional; default: parent directory of fastq_path)
 
 Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file
 
   Advanced options:
-    --compression_level <num>        Compression level for gzip (default: 1)
+    --compression_level <num>        Compression level for gzip (default: 6)
     --linker1 <seq>                  Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --linker2 <seq>                  Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
     --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
@@ -45,18 +47,18 @@ Other Options:
 
 Examples:
   # Basic usage
-  $0 -f reads -o /path/to/output
+  $0 -f /path/to/fastq
+
+  # Write results to a different directory
+  $0 -f /path/to/fastq -o /path/to/output
 
 EOF
 }
 
 # Set default values
 
-# Required Arguments
-reads_dir=${reads_dir:-fastq}
-
 # Preprocessing Advanced options
-compression_level=${compression_level:-1}
+compression_level=${compression_level:-6}
 linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
 mm_rate=${mm_rate:-0.05}
@@ -80,6 +82,17 @@ length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+PYTHON_DIR="$SCRIPT_DIR/python"
+
+normalize_dir_path() {
+    local path="$1"
+    while [[ "$path" != "/" && "$path" == */ ]]; do
+        path="${path%/}"
+    done
+    printf '%s\n' "$path"
+}
+
 # Short options
 short_args=()
 while [[ $# -gt 0 ]]; do
@@ -93,12 +106,11 @@ long_args=("$@")
 set -- "${short_args[@]}"
 OPTIND=1
 
-while getopts "f:o:w:c:h" opt; do
+while getopts "f:o:w:h" opt; do
     case $opt in
-        f) reads_dir=$OPTARG ;;
+        f) fastq_path=$OPTARG ;;
         o) output_path=$OPTARG ;;
         w) whitelist_path=$OPTARG ;;
-        c) cutadap=$OPTARG ;;
         h) show_help; exit 0 ;;
         ?) echo "Invalid option: -$OPTARG" >&2
             echo "Use -h or --help for usage information" >&2
@@ -110,6 +122,12 @@ done
 set -- "${long_args[@]}"
 while [[ $# -gt 0 ]]; do
     case $1 in
+        # Required Arguments
+        --fastq_path) fastq_path=$2; shift 2 ;;
+        # Output Options
+        --output_path) output_path=$2; shift 2 ;;
+        # Preprocessing Options
+        --whitelist) whitelist_path=$2; shift 2 ;;
         # Preprocessing Advanced options
         --compression_level) compression_level=$2; shift 2 ;;
         --linker1) linker1=$2; shift 2 ;;
@@ -140,19 +158,37 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check required arguments
-if [ -z "$reads_dir" ] || [ -z "$output_path" ]; then
-    echo "Error: -f (reads_dir) and -o (output_dir) are required" >&2
+if [ -z "$fastq_path" ]; then
+    echo "Error: -f (fastq_path) is required" >&2
     echo "Use -h or --help for usage information" >&2
     exit 1
+fi
+
+fastq_path=$(normalize_dir_path "$fastq_path")
+if [ -n "$output_path" ]; then
+    output_path=$(normalize_dir_path "$output_path")
+fi
+if [ -n "$scratch" ]; then
+    scratch=$(normalize_dir_path "$scratch")
+fi
+
+if [ ! -d "$fastq_path" ]; then
+    echo "Error: fastq directory does not exist: $fastq_path" >&2
+    exit 1
+fi
+
+if [ -z "$output_path" ]; then
+    output_path=$(dirname "$fastq_path")
 fi
 
 orig_output_path="$output_path"
 
 mkdir -p "$output_path"
 
-for r1 in "$orig_output_path/$reads_dir"/*_R1.fq.gz; do
+for r1 in "$fastq_path"/*_R1.fq.gz; do
+    [ -e "$r1" ] || { echo "Error: no *_R1.fq.gz files found in $fastq_path" >&2; exit 1; }
     sample_name=$(basename "$r1" | sed 's/_R1.fq.gz//')
-    r2_orig="$orig_output_path/$reads_dir/${sample_name}_R2.fq.gz"
+    r2_orig="$fastq_path/${sample_name}_R2.fq.gz"
 
     log_file="$orig_output_path/${sample_name}_preprocess.log"
     bam_file="$orig_output_path/results/$sample_name/Aligned.sortedByCoord.out.bam"
@@ -189,7 +225,7 @@ for r1 in "$orig_output_path/$reads_dir"/*_R1.fq.gz; do
             step1_log="$log_file"
         fi
 
-        python ./python/preprocess.py \
+        python "$PYTHON_DIR/preprocess.py" \
             -r1 "$step1_r1" -r2 "$step1_r2" \
             -o "$step1_out" -s "$sample_name" \
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -263,7 +299,7 @@ for r1 in "$orig_output_path/$reads_dir"/*_R1.fq.gz; do
     # Step 3: always run locally, no skip and no scratch.
     final_results="$orig_output_path/results/$sample_name"
     mkdir -p "$final_results"
-    python ./python/mrna.py -f "$final_results/Solo.out" -w "$whitelist_path" \
+    python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \

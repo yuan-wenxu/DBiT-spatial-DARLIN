@@ -3,17 +3,19 @@
 # Show help message
 show_help() {
     cat << EOF
-Usage: $0 -c <cell_number_file> [ -d <mrna_dir> ] [ -a <amp_dir> -w <whitelist> ] [OPTIONS]
+Usage: $0 -c <cell_number_file> [ -m <mrna_dir> ] [ -a <amp_dir> -w <whitelist> ] [OPTIONS]
 
 Plot filtered results (cell-filtered) for mRNA and/or amplicon data.
 
 Required Arguments:
-  -c, --cell_number_file <path>     Path to cell number file (e.g. cell_num_area.csv)
-  -w, --whitelist <path>            Path to barcode whitelist file
+  -c, --cell_number_file <path>     Path to cell number file (e.g. filtered_results.csv)
   
 Optional (at least one of the two groups below):
-  -d, --mrna_dir <path>             Path to mRNA results directory
+  -m, --mrna_dir <path>             Path to mRNA results directory
   -a, --amp_dir <path>              Path to amplicon results directory
+  -w, --whitelist <path>            Path to barcode whitelist file (required only when -a/--amp_dir is provided)
+  -g, --gray_path <path>            Path to gray image for merge (optional; default: gray.png next to cell_number_file)
+  -o, --orientation <mode>          Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
 
 Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
   --x_spots_number <num>            Number of spots in x direction (default: 50)
@@ -26,26 +28,45 @@ Other Options:
   -h, --help                        Show this help message and exit
 
 Examples:
+  # mRNA only
+  $0 -c filtered_results.csv -m /path/to/mrna/results
+
+  # Use a custom gray image for merge
+  $0 -c filtered_results.csv -m /path/to/mrna/results -g /path/to/gray.png
+
+  # Rotate filtered images before merging on gray
+  $0 -c filtered_results.csv -m /path/to/mrna/results -o rotate
+
   # Both mRNA and amplicon
-  $0 -c cell_num_area.csv -d /path/to/mrna/results -a /path/to/amp/results -w barcodes.tsv
+  $0 -c filtered_results.csv -m /path/to/mrna/results -a /path/to/amp/results -w barcodes.tsv
 
 EOF
 }
 
 # Set default values (order matches the help message)
 
-MERGE_SCRIPT=./python/image_process/merge_on_gray.py
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+PYTHON_DIR="$SCRIPT_DIR/python"
+MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
+
+normalize_dir_path() {
+    local path="$1"
+    while [[ "$path" != "/" && "$path" == */ ]]; do
+        path="${path%/}"
+    done
+    printf '%s\n' "$path"
+}
 
 merge_with_gray() {
     local search_dir="$1"
-    local gray="$(dirname "$cell_number_file")/gray.png"
-    if [[ -f "$gray" ]]; then
+    if [[ -f "$gray_path" ]]; then
         python "$MERGE_SCRIPT" \
-            --gray "$gray" \
+            --gray "$gray_path" \
             --search-dir "$search_dir" \
+            --orientation "$orientation" \
             --recursive
     else
-        echo "Warning: gray.png not found at $gray, skipping merge."
+        echo "Warning: gray image not found at $gray_path, skipping merge."
     fi
 }
 
@@ -55,6 +76,7 @@ y_spots_number=${y_spots_number:-50}
 length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
+orientation=${orientation:-normal}
 
 # Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.
 short_args=()
@@ -69,12 +91,14 @@ long_args=("$@")
 # Parse short options
 set -- "${short_args[@]}"
 OPTIND=1
-while getopts "c:d:a:w:h" opt; do
+while getopts "c:m:a:w:g:o:h" opt; do
     case $opt in
         c) cell_number_file=$OPTARG ;;
-        d) mrna_dir=$OPTARG ;;
+        m) mrna_dir=$OPTARG ;;
         a) amp_dir=$OPTARG ;;
         w) whitelist_path=$OPTARG ;;
+        g) gray_path=$OPTARG ;;
+        o) orientation=$OPTARG ;;
         h) show_help; exit 0 ;;
         ?) echo "Invalid option: -$OPTARG" >&2
             echo "Use -h or --help for usage information" >&2
@@ -86,6 +110,12 @@ done
 set -- "${long_args[@]}"
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --cell_number_file) cell_number_file=$2; shift 2 ;;
+        --mrna_dir) mrna_dir=$2; shift 2 ;;
+        --amp_dir) amp_dir=$2; shift 2 ;;
+        --whitelist) whitelist_path=$2; shift 2 ;;
+        --gray_path) gray_path=$2; shift 2 ;;
+        --orientation) orientation=$2; shift 2 ;;
         --x_spots_number) x_spots_number=$2; shift 2 ;;
         --y_spots_number) y_spots_number=$2; shift 2 ;;
         --length_spot) length_spot=$2; shift 2 ;;
@@ -102,19 +132,41 @@ if [ -z "$cell_number_file" ]; then
     echo "Use -h or --help for usage information" >&2
     exit 1
 fi
-if [ -z "$whitelist_path" ]; then
-    echo "Error: -w (whitelist) is required" >&2
+if [ -z "$mrna_dir" ] && [ -z "$amp_dir" ]; then
+    echo "Error: at least one of -m (mrna_dir) or -a (amp_dir) must be specified" >&2
+    echo "Use -h or --help for usage information" >&2
     exit 1
 fi
-if [ -z "$mrna_dir" ] && [ -z "$amp_dir" ]; then
-    echo "Error: at least one of -d (mrna_dir) or -a (amp_dir) must be specified" >&2
+if [ -n "$amp_dir" ] && [ -z "$whitelist_path" ]; then
+    echo "Error: -w (whitelist) is required when -a (amp_dir) is specified" >&2
     echo "Use -h or --help for usage information" >&2
     exit 1
 fi
 
-# mRNA cell-filtered plot (only when -d is provided)
 if [ -n "$mrna_dir" ]; then
-    python ./python/mrna_cell.py \
+    mrna_dir=$(normalize_dir_path "$mrna_dir")
+fi
+if [ -n "$amp_dir" ]; then
+    amp_dir=$(normalize_dir_path "$amp_dir")
+fi
+
+if [ -z "$gray_path" ]; then
+    gray_dir=$(normalize_dir_path "$(dirname "$cell_number_file")")
+    gray_path="$gray_dir/gray.png"
+fi
+
+case "$orientation" in
+    normal|horizontal|vertical|rotate)
+        ;;
+    *)
+        echo "Error: -o/--orientation must be one of normal, horizontal, vertical, rotate" >&2
+        exit 1
+        ;;
+esac
+
+# mRNA cell-filtered plot (only when -m is provided)
+if [ -n "$mrna_dir" ]; then
+    python "$PYTHON_DIR/mrna_cell.py" \
         -c "$cell_number_file" \
         -d "$mrna_dir" \
         --x_spots_number "$x_spots_number" \
@@ -128,7 +180,7 @@ fi
 
 # Amplicon cell-filtered plot (only when -a is provided)
 if [ -n "$amp_dir" ]; then
-    python ./python/amplicon_cell.py \
+    python "$PYTHON_DIR/amplicon_cell.py" \
         -c "$cell_number_file" \
         -d "$amp_dir" \
         -w "$whitelist_path" \

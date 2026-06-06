@@ -17,16 +17,40 @@ def str_to_bool(value):
         raise argparse.ArgumentTypeError(f'Boolean value expected, got: {value}')
 
 
-def main(image_path, split_path, mask_path, label_path, plot_config, stardist_config, put_text, font_size):
+ORIENTATION_CHOICES = ('normal', 'horizontal', 'vertical', 'rotate')
+
+
+def normalize_orientation(value):
+    orientation = value.lower()
+    if orientation not in ORIENTATION_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f'orientation must be one of {", ".join(ORIENTATION_CHOICES)}, got: {value}'
+        )
+    return orientation
+
+
+def main(image_path, split_path, mask_path, label_path, plot_config, stardist_config, put_text, font_size, orientation):
     os.makedirs(split_path, exist_ok=True)
     os.makedirs(mask_path, exist_ok=True)
     os.makedirs(label_path, exist_ok=True)
     result_path = os.path.dirname(split_path)
+    orientation_file = os.path.join(split_path, '.orientation')
+    expected_split_count = plot_config.x_spots_number * plot_config.y_spots_number
+    split_files = [
+        i for i in os.listdir(split_path)
+        if i.lower().endswith(('.tif', '.tiff', '.png', '.jpg'))
+    ]
+    previous_orientation = ''
+    if os.path.exists(orientation_file):
+        with open(orientation_file, 'r', encoding='utf-8') as f:
+            previous_orientation = f.read().strip()
 
-    if len(os.listdir(split_path)) == 2500:  # Check if already processed
-        print(f'✓ Split images already exist in {split_path}, skipping splitting step.')
+    if len(split_files) == expected_split_count and previous_orientation == orientation:
+        print(f'✓ Split images already exist in {split_path} with orientation={orientation}, skipping splitting step.')
     else:
-        split_image(image_path, plot_config, split_path, result_path, put_text, font_size)
+        split_image(image_path, plot_config, split_path, result_path, put_text, font_size, orientation)
+        with open(orientation_file, 'w', encoding='utf-8') as f:
+            f.write(orientation)
 
     result = pd.DataFrame(columns=['x', 'y', 'num_cells', 'area', 'status'])
 
@@ -118,6 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model_name', type=str, default='2D_versatile_fluo', help='pretrained model name')
     parser.add_argument('-pt', '--prob_thresh', type=float, default=0.5, help='detection probability threshold')
     parser.add_argument('-nt', '--nms_thresh', type=float, default=0.6, help='NMS IoU threshold')
+    parser.add_argument('--orientation', type=normalize_orientation, default='normal', help='Grid origin orientation: normal, horizontal, vertical, or rotate')
     args = parser.parse_args()
 
     result_path = args.result_path
@@ -132,4 +157,4 @@ if __name__ == '__main__':
     stardist_config = StardistConfig(
         args.top_value, args.number_of_top_values, args.prob_thresh, args.nms_thresh, args.model_name
     )
-    main(args.image_path, split_path, mask_path, label_path, plot_config, stardist_config, args.put_text, args.font_size)
+    main(args.image_path, split_path, mask_path, label_path, plot_config, stardist_config, args.put_text, args.font_size, args.orientation)

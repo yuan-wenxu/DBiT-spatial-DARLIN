@@ -42,6 +42,9 @@ mRNA QC Options:
   --interval <num>                  Interval between spots in pixels (default: 20)
   --pixel_length <float>            Length of each pixel in microns (default: 0.294)
 
+Pixi environment options:
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+
 Other Options:
   -h, --help                        Show this help message and exit
 
@@ -81,6 +84,9 @@ y_spots_number=${y_spots_number:-50}
 length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
+
+# Pixi environment options
+pixi_env=${pixi_env:-dbit}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
@@ -151,6 +157,7 @@ while [[ $# -gt 0 ]]; do
         --length_spot) length_spot=$2; shift 2 ;;
         --interval) interval=$2; shift 2 ;;
         --pixel_length) pixel_length=$2; shift 2 ;;
+        --pixi_env) pixi_env=$2; shift 2 ;;
         # Other Options
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -225,7 +232,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             step1_log="$log_file"
         fi
 
-        python "$PYTHON_DIR/preprocess.py" \
+        pixi run -e "$pixi_env" python "$PYTHON_DIR/preprocess.py" \
             -r1 "$step1_r1" -r2 "$step1_r2" \
             -o "$step1_out" -s "$sample_name" \
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -267,7 +274,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         fi
 
         mkdir -p "$star_results"
-        STAR \
+        pixi run -e "$pixi_env" STAR \
             --runMode alignReads \
             --runThreadN "$star_threads" \
             --genomeDir "$genome_dir" \
@@ -299,7 +306,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     # Step 3: always run locally, no skip and no scratch.
     final_results="$orig_output_path/results/$sample_name"
     mkdir -p "$final_results"
-    python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \

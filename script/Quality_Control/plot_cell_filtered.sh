@@ -24,6 +24,9 @@ Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
   --interval <num>                  Interval between spots in pixels (default: 20)
   --pixel_length <float>            Length of each pixel in microns (default: 0.294)
 
+Pixi environment options:
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+
 Other Options:
   -h, --help                        Show this help message and exit
 
@@ -60,7 +63,7 @@ normalize_dir_path() {
 merge_with_gray() {
     local search_dir="$1"
     if [[ -f "$gray_path" ]]; then
-        python "$MERGE_SCRIPT" \
+        pixi run -e "$pixi_env" python "$MERGE_SCRIPT" \
             --gray "$gray_path" \
             --search-dir "$search_dir" \
             --orientation "$orientation" \
@@ -77,6 +80,7 @@ length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 orientation=${orientation:-normal}
+pixi_env=${pixi_env:-dbit}
 
 # Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.
 short_args=()
@@ -121,6 +125,7 @@ while [[ $# -gt 0 ]]; do
         --length_spot) length_spot=$2; shift 2 ;;
         --interval) interval=$2; shift 2 ;;
         --pixel_length) pixel_length=$2; shift 2 ;;
+        --pixi_env) pixi_env=$2; shift 2 ;;
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -166,7 +171,7 @@ esac
 
 # mRNA cell-filtered plot (only when -m is provided)
 if [ -n "$mrna_dir" ]; then
-    python "$PYTHON_DIR/mrna_cell.py" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_cell.py" \
         -c "$cell_number_file" \
         -d "$mrna_dir" \
         --x_spots_number "$x_spots_number" \
@@ -180,7 +185,7 @@ fi
 
 # Amplicon cell-filtered plot (only when -a is provided)
 if [ -n "$amp_dir" ]; then
-    python "$PYTHON_DIR/amplicon_cell.py" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_cell.py" \
         -c "$cell_number_file" \
         -d "$amp_dir" \
         -w "$whitelist_path" \

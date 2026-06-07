@@ -37,9 +37,35 @@ There are four shell scripts in the Quality Control folder:
 
 ## 1. Environment
 
-Recommended: Python 3.10 for `image.sh`, Python 3.12 for others
+This project now uses `pixi` as the environment manager.
 
-We provide a Dockerfile and a Docker image (yuanwenxu/dbit:0.2.0). We also provide pixi.toml and pixi.lock.
+- `dbit` environment: for `dbit_mrna.sh`, `dbit_amplicon.sh`, and `plot_cell_filtered.sh`
+- `stardist` environment: for `image.sh`
+
+Environment files are included in the repository:
+
+- `pixi.toml`
+- `pixi.lock`
+
+Setup:
+
+```bash
+cd /path/to/DBiT-spatial-DARLIN
+pixi install
+```
+
+This creates the environments defined in `pixi.toml`. The shell scripts call `pixi run -e ...` internally, so you do not need to activate environments manually.
+
+Validated with:
+
+- `pixi 0.70.1`
+- `pixi run -e dbit ...`
+- `pixi run -e stardist ...`
+
+Key tools and packages verified in the pixi environments:
+
+- `dbit`: `STAR`, `samtools`, `seqtk`, `fastp`, `cutadapt`, `scanpy`, `umi_tools`
+- `stardist`: `tensorflow`, `stardist`, `opencv-python-headless`, `imagecodecs`
 
 ## 2. Quick Start
 

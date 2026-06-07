@@ -33,6 +33,9 @@ StarDist Detection Options:
   --prob_thresh <num>          Detection probability threshold (default: 0.5)
   --nms_thresh <num>           NMS IoU threshold (default: 0.6)
 
+Pixi environment options:
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: stardist)
+
 Other Options:
   -h, --help                      Show this help message and exit
 
@@ -81,6 +84,9 @@ prob_thresh=${prob_thresh:-0.5}
 nms_thresh=${nms_thresh:-0.6}
 cutoff=${cutoff:-100}
 
+# Pixi environment options
+pixi_env=${pixi_env:-stardist}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         # Required Arguments
@@ -111,6 +117,7 @@ while [[ $# -gt 0 ]]; do
         --prob_thresh) prob_thresh=$2; shift 2 ;;
         --nms_thresh) nms_thresh=$2; shift 2 ;;
         --cutoff) cutoff=$2; shift 2 ;;
+        --pixi_env) pixi_env=$2; shift 2 ;;
         # Other Options
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -163,7 +170,7 @@ else
     run_result_path="$output_path"
 fi
 
-conda run -n stardist --no-capture-output python "$PYTHON_DIR/stardist_segment.py" \
+pixi run -e "$pixi_env" python "$PYTHON_DIR/stardist_segment.py" \
   -ip "$run_image_path" \
   -r "$run_result_path" \
   --x_spots_number $x_spots_number \
@@ -180,7 +187,7 @@ conda run -n stardist --no-capture-output python "$PYTHON_DIR/stardist_segment.p
   -nt $nms_thresh \
   --orientation "$orientation"
 
-conda run -n stardist --no-capture-output python "$PYTHON_DIR/cell_filter.py" \
+pixi run -e "$pixi_env" python "$PYTHON_DIR/cell_filter.py" \
   -f "$run_result_path" \
   -c $cutoff
 

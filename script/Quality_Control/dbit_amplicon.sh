@@ -34,6 +34,9 @@ DARLIN Correction Options:
   --reads_cutoff <num>                Only keep (SR, UR, LR) with supported reads >= this value (default: 10)
   --slope_cutoff <num>                Only keep SR (spots) with k = reads/UMIs >= this value (default: 10)
 
+Pixi environment options:
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+
 Other Options:
   -h, --help                        Show this help message and exit
 
@@ -67,6 +70,9 @@ lb_error_rate=${lb_error_rate:-0.02}
 major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
+
+# Pixi environment options
+pixi_env=${pixi_env:-dbit}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
@@ -131,6 +137,7 @@ while [[ $# -gt 0 ]]; do
         --major_fraction_threshold) major_fraction_threshold_molecule=$2; shift 2 ;;
         --reads_cutoff) reads_cutoff=$2; shift 2 ;;
         --slope_cutoff) slope_cutoff=$2; shift 2 ;;
+        --pixi_env) pixi_env=$2; shift 2 ;;
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -183,7 +190,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
 
     # Cutadapt and extract UMI and barcode
-    python "$PYTHON_DIR/preprocess.py" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/preprocess.py" \
         -r1 "$r1" -r2 "$r2" \
         -o "$output_path" -s "$sample_name" \
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -197,7 +204,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     results=$output_path/results/$nonlocus_sample_name/$locus
     mkdir -p "$results"
 
-    python "$PYTHON_DIR/amplicon.py" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.fq.gz" \
         -o "$results" -d "$cutadapt" \
@@ -207,7 +214,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --reads_cutoff "$reads_cutoff" \
         --slope_cutoff "$slope_cutoff" &> "$results/dbit.log"
 
-    python "$PYTHON_DIR/plot/heatmap.py" \
+    pixi run -e "$pixi_env" python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \
         -w "$whitelist_path" \
         -o "$results"

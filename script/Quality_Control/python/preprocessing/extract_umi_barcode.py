@@ -198,7 +198,7 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     return barcode, umi, barcode_q, umi_q
 
 
-def correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map):
+def correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map):
     """Use global maps built from whitelists; return corrected 16bp or None."""
     bcB = barcode[:8]
     bcA = barcode[8:]
@@ -283,7 +283,7 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                 linker1_end = match_result.linker1_matches[0].end
                 barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
                 if correct_barcode:
-                    barcode = correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map)
+                    barcode = correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map)
                 if barcode is None:
                     continue
                 if len(barcode) != 16 or len(umi) != 10:

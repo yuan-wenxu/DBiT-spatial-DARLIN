@@ -15,7 +15,8 @@ Optional (at least one of the two groups below):
   -a, --amp_dir <path>              Path to amplicon results directory
   -w, --whitelist <path>            Path to barcode whitelist file (required only when -a/--amp_dir is provided)
   -g, --gray_path <path>            Path to gray image for merge (optional; default: gray.png next to cell_number_file)
-  -o, --orientation <mode>          Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
+  --orientation <mode>          Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
+  --swap_xy                         Swap x and y axes after applying orientation before merging (optional)
 
 Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
   --x_spots_number <num>            Number of spots in x direction (default: 50)
@@ -24,8 +25,18 @@ Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
   --interval <num>                  Interval between spots in pixels (default: 20)
   --pixel_length <float>            Length of each pixel in microns (default: 0.294)
 
+Orientation Notes:
+  normal                            Keep the coordinate system unchanged
+  horizontal                        Flip the coordinate system horizontally
+  vertical                          Flip the coordinate system vertically
+  rotate                            Rotate the coordinate system 180 degrees; equivalent to horizontal + vertical
+  --swap_xy                         Swap x and y coordinate axes after applying orientation
+  horizontal + --swap_xy            Rotate the coordinate system 90 degrees counterclockwise
+  vertical + --swap_xy              Rotate the coordinate system 90 degrees clockwise
+
 Pixi environment options:
   --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
   -h, --help                        Show this help message and exit
@@ -51,6 +62,7 @@ EOF
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
+pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 normalize_dir_path() {
     local path="$1"
@@ -63,11 +75,19 @@ normalize_dir_path() {
 merge_with_gray() {
     local search_dir="$1"
     if [[ -f "$gray_path" ]]; then
-        pixi run -e "$pixi_env" python "$MERGE_SCRIPT" \
-            --gray "$gray_path" \
-            --search-dir "$search_dir" \
-            --orientation "$orientation" \
-            --recursive
+        (
+            cd "$pixi_env_dir" || exit 1
+            merge_args=(
+                --gray "$gray_path"
+                --search-dir "$search_dir"
+                --orientation "$orientation"
+                --recursive
+            )
+            if [[ "$swap_xy" == True ]]; then
+                merge_args+=(--swap_xy)
+            fi
+            pixi run -e "$pixi_env" python "$MERGE_SCRIPT" "${merge_args[@]}"
+        )
     else
         echo "Warning: gray image not found at $gray_path, skipping merge."
     fi
@@ -80,6 +100,7 @@ length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 orientation=${orientation:-normal}
+swap_xy=${swap_xy:-False}
 pixi_env=${pixi_env:-dbit}
 
 # Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.
@@ -95,14 +116,13 @@ long_args=("$@")
 # Parse short options
 set -- "${short_args[@]}"
 OPTIND=1
-while getopts "c:m:a:w:g:o:h" opt; do
+while getopts "c:m:a:w:g:h" opt; do
     case $opt in
         c) cell_number_file=$OPTARG ;;
         m) mrna_dir=$OPTARG ;;
         a) amp_dir=$OPTARG ;;
         w) whitelist_path=$OPTARG ;;
         g) gray_path=$OPTARG ;;
-        o) orientation=$OPTARG ;;
         h) show_help; exit 0 ;;
         ?) echo "Invalid option: -$OPTARG" >&2
             echo "Use -h or --help for usage information" >&2
@@ -120,12 +140,14 @@ while [[ $# -gt 0 ]]; do
         --whitelist) whitelist_path=$2; shift 2 ;;
         --gray_path) gray_path=$2; shift 2 ;;
         --orientation) orientation=$2; shift 2 ;;
+        --swap_xy) swap_xy=True; shift ;;
         --x_spots_number) x_spots_number=$2; shift 2 ;;
         --y_spots_number) y_spots_number=$2; shift 2 ;;
         --length_spot) length_spot=$2; shift 2 ;;
         --interval) interval=$2; shift 2 ;;
         --pixel_length) pixel_length=$2; shift 2 ;;
         --pixi_env) pixi_env=$2; shift 2 ;;
+        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -169,31 +191,40 @@ case "$orientation" in
         ;;
 esac
 
+if [[ ! -d "$pixi_env_dir" ]]; then
+    echo "Error: pixi environment dir does not exist: $pixi_env_dir" >&2
+    exit 1
+fi
+
 # mRNA cell-filtered plot (only when -m is provided)
 if [ -n "$mrna_dir" ]; then
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_cell.py" \
-        -c "$cell_number_file" \
-        -d "$mrna_dir" \
-        --x_spots_number "$x_spots_number" \
-        --y_spots_number "$y_spots_number" \
-        --length_spot "$length_spot" \
-        --interval "$interval" \
-        --pixel_length "$pixel_length" \
-        &> "$mrna_dir/filtered_plot.log"
+    (
+        cd "$pixi_env_dir" || exit 1
+        pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_cell.py" \
+            -c "$cell_number_file" \
+            -d "$mrna_dir" \
+            --x_spots_number "$x_spots_number" \
+            --y_spots_number "$y_spots_number" \
+            --length_spot "$length_spot" \
+            --interval "$interval" \
+            --pixel_length "$pixel_length"
+    ) &> "$mrna_dir/filtered_plot.log"
     merge_with_gray "$mrna_dir"
 fi
 
 # Amplicon cell-filtered plot (only when -a is provided)
 if [ -n "$amp_dir" ]; then
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_cell.py" \
-        -c "$cell_number_file" \
-        -d "$amp_dir" \
-        -w "$whitelist_path" \
-        --x_spots_number "$x_spots_number" \
-        --y_spots_number "$y_spots_number" \
-        --length_spot "$length_spot" \
-        --interval "$interval" \
-        --pixel_length "$pixel_length" \
-        &> "$amp_dir/filtered_plot.log"
+    (
+        cd "$pixi_env_dir" || exit 1
+        pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_cell.py" \
+            -c "$cell_number_file" \
+            -d "$amp_dir" \
+            -w "$whitelist_path" \
+            --x_spots_number "$x_spots_number" \
+            --y_spots_number "$y_spots_number" \
+            --length_spot "$length_spot" \
+            --interval "$interval" \
+            --pixel_length "$pixel_length"
+    ) &> "$amp_dir/filtered_plot.log"
     merge_with_gray "$amp_dir"
 fi

@@ -164,23 +164,23 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     barcodeB = seq[linker2_start - 8: linker2_start]
     barcodeA_q = qual[linker2_end: linker2_end + 8]
     barcodeB_q = qual[linker2_start - 8: linker2_start]
-    barcode = barcodeA + barcodeB
-    barcode_q = barcodeA_q + barcodeB_q
+    barcode = barcodeB + barcodeA
+    barcode_q = barcodeB_q + barcodeA_q
     umi = seq[linker1_end: linker1_end + 10]
     umi_q = qual[linker1_end: linker1_end + 10]
     return barcode, umi, barcode_q, umi_q
 
 def correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map):
     """Use global maps built from whitelists; return corrected 16bp or None."""
-    bc1 = barcode[:8]
-    bc2 = barcode[8:]
-    bc1_cor = barcodeA_correction_map.get(bc1, None)
-    if bc1_cor is None:
+    bcB = barcode[:8]
+    bcA = barcode[8:]
+    bcA_cor = barcodeA_correction_map.get(bcA, None)
+    if bcA_cor is None:
         return None
-    bc2_cor = barcodeB_correction_map.get(bc2, None)
-    if bc2_cor is None:
+    bcB_cor = barcodeB_correction_map.get(bcB, None)
+    if bcB_cor is None:
         return None
-    return bc1_cor + bc2_cor
+    return bcB_cor + bcA_cor
 
 
 def qual_to_string(qual):

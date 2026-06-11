@@ -2,10 +2,10 @@
 Transform *_filtered.png images and composite them onto gray.png.
 
 Usage:
-    python merge_on_gray.py --gray <gray.png> --search-dir <dir> [--orientation <mode>] [--recursive]
+    python merge_on_gray.py --gray <gray.png> --search-dir <dir> [--orientation <mode>] [--swap_xy] [--recursive]
 
 For each *_filtered.png found under --search-dir the script will:
-  1. Transform the image according to --orientation.
+  1. Transform the image according to --orientation, then --swap_xy when requested.
   2. Resize gray.png to match the transformed image.
   3. Composite the RGBA overlay onto the gray background.
   4. Save as merged_<original_filename> in the same directory.
@@ -35,19 +35,21 @@ def normalize_orientation(value: str) -> str:
     return orientation
 
 
-def transform_frame(frame: Image.Image, orientation: str) -> Image.Image:
+def transform_frame(frame: Image.Image, orientation: str, swap_xy: bool) -> Image.Image:
     if orientation == "horizontal":
-        return ImageOps.mirror(frame)
-    if orientation == "vertical":
-        return ImageOps.flip(frame)
-    if orientation == "rotate":
-        return frame.transpose(Image.Transpose.ROTATE_180)
+        frame = ImageOps.mirror(frame)
+    elif orientation == "vertical":
+        frame = ImageOps.flip(frame)
+    elif orientation == "rotate":
+        frame = frame.transpose(Image.Transpose.ROTATE_180)
+    if swap_xy:
+        frame = frame.transpose(Image.Transpose.TRANSPOSE)
     return frame
 
 
-def merge_on_gray(frame_path: str, gray_path: str, orientation: str) -> None:
+def merge_on_gray(frame_path: str, gray_path: str, orientation: str, swap_xy: bool) -> None:
     frame = Image.open(frame_path).convert("RGBA")
-    frame_transformed = transform_frame(frame, orientation)
+    frame_transformed = transform_frame(frame, orientation, swap_xy)
     if "umap" in frame_path:
         frame_transformed = set_opacity(frame_transformed, 0.7)
 
@@ -69,6 +71,7 @@ def main() -> None:
     parser.add_argument("--gray", required=True, help="Path to gray.png background image")
     parser.add_argument("--search-dir", required=True, help="Directory to search for *_filtered.png")
     parser.add_argument("--orientation", type=normalize_orientation, default="normal", help="Transform overlay before merging: normal, horizontal, vertical, or rotate")
+    parser.add_argument("--swap_xy", action="store_true", help="Swap x and y axes after applying orientation before merging")
     parser.add_argument("--recursive", action="store_true", help="Search subdirectories recursively")
     args = parser.parse_args()
 
@@ -86,7 +89,7 @@ def main() -> None:
         return
 
     for p in sorted(matches):
-        merge_on_gray(str(p), args.gray, args.orientation)
+        merge_on_gray(str(p), args.gray, args.orientation, args.swap_xy)
         print(f"Merged: {p} -> merged_{p.name}")
 
 

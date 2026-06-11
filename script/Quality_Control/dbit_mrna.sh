@@ -44,6 +44,7 @@ mRNA QC Options:
 
 Pixi environment options:
   --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
   -h, --help                        Show this help message and exit
@@ -85,11 +86,12 @@ length_spot=${length_spot:-20}
 interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 
-# Pixi environment options
-pixi_env=${pixi_env:-dbit}
-
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
+
+# Pixi environment options
+pixi_env=${pixi_env:-dbit}
+pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 normalize_dir_path() {
     local path="$1"
@@ -97,6 +99,13 @@ normalize_dir_path() {
         path="${path%/}"
     done
     printf '%s\n' "$path"
+}
+
+run_pixi() {
+    (
+        cd "$pixi_env_dir" || exit 1
+        pixi run -e "$pixi_env" "$@"
+    )
 }
 
 # Short options
@@ -158,6 +167,7 @@ while [[ $# -gt 0 ]]; do
         --interval) interval=$2; shift 2 ;;
         --pixel_length) pixel_length=$2; shift 2 ;;
         --pixi_env) pixi_env=$2; shift 2 ;;
+        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
         # Other Options
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -177,6 +187,11 @@ if [ -n "$output_path" ]; then
 fi
 if [ -n "$scratch" ]; then
     scratch=$(normalize_dir_path "$scratch")
+fi
+
+if [ ! -d "$pixi_env_dir" ]; then
+    echo "Error: pixi environment dir does not exist: $pixi_env_dir" >&2
+    exit 1
 fi
 
 if [ ! -d "$fastq_path" ]; then
@@ -232,7 +247,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             step1_log="$log_file"
         fi
 
-        pixi run -e "$pixi_env" python "$PYTHON_DIR/preprocess.py" \
+        run_pixi python "$PYTHON_DIR/preprocess.py" \
             -r1 "$step1_r1" -r2 "$step1_r2" \
             -o "$step1_out" -s "$sample_name" \
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -274,7 +289,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         fi
 
         mkdir -p "$star_results"
-        pixi run -e "$pixi_env" STAR \
+        run_pixi STAR \
             --runMode alignReads \
             --runThreadN "$star_threads" \
             --genomeDir "$genome_dir" \
@@ -306,7 +321,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     # Step 3: always run locally, no skip and no scratch.
     final_results="$orig_output_path/results/$sample_name"
     mkdir -p "$final_results"
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
+    run_pixi python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \

@@ -36,6 +36,7 @@ DARLIN Correction Options:
 
 Pixi environment options:
   --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
   -h, --help                        Show this help message and exit
@@ -71,11 +72,12 @@ major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
 
-# Pixi environment options
-pixi_env=${pixi_env:-dbit}
-
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
+
+# Pixi environment options
+pixi_env=${pixi_env:-dbit}
+pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 normalize_dir_path() {
     local path="$1"
@@ -83,6 +85,13 @@ normalize_dir_path() {
         path="${path%/}"
     done
     printf '%s\n' "$path"
+}
+
+run_pixi() {
+    (
+        cd "$pixi_env_dir" || exit 1
+        pixi run -e "$pixi_env" "$@"
+    )
 }
 
 # Short options
@@ -138,6 +147,7 @@ while [[ $# -gt 0 ]]; do
         --reads_cutoff) reads_cutoff=$2; shift 2 ;;
         --slope_cutoff) slope_cutoff=$2; shift 2 ;;
         --pixi_env) pixi_env=$2; shift 2 ;;
+        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
         --help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -156,6 +166,11 @@ if [ -n "$output_path" ]; then
 fi
 if [ -n "$scratch" ]; then
     scratch=$(normalize_dir_path "$scratch")
+fi
+
+if [ ! -d "$pixi_env_dir" ]; then
+    echo "Error: pixi environment dir does not exist: $pixi_env_dir" >&2
+    exit 1
 fi
 
 if [ ! -d "$fastq_path" ]; then
@@ -190,7 +205,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
 
     # Cutadapt and extract UMI and barcode
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/preprocess.py" \
+    run_pixi python "$PYTHON_DIR/preprocess.py" \
         -r1 "$r1" -r2 "$r2" \
         -o "$output_path" -s "$sample_name" \
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
@@ -204,7 +219,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     results=$output_path/results/$nonlocus_sample_name/$locus
     mkdir -p "$results"
 
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon.py" \
+    run_pixi python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.fq.gz" \
         -o "$results" -d "$cutadapt" \
@@ -214,7 +229,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --reads_cutoff "$reads_cutoff" \
         --slope_cutoff "$slope_cutoff" &> "$results/dbit.log"
 
-    pixi run -e "$pixi_env" python "$PYTHON_DIR/plot/heatmap.py" \
+    run_pixi python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \
         -w "$whitelist_path" \
         -o "$results"

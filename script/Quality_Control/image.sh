@@ -21,8 +21,18 @@ Image Processing Options:
   --pixel_length <float>      Length of each pixel in μm (default: 0.294)
   --put_text <bool>           Whether to put text on the image (True/False, yes/no, 1/0) (default: True)
   --font_size <num>           Font size of the text (default: 1)
-  -o, --orientation <mode>    Grid origin orientation: normal, horizontal, vertical, rotate (default: normal)
+  --orientation <mode>    Grid origin orientation: normal, horizontal, vertical, rotate (default: normal)
+  --swap_xy                   Swap x and y grid axes after applying orientation (optional)
   --scratch <path>            Path to scratch directory for intermediate files (optional)
+
+Orientation Notes:
+  normal                      Keep the coordinate system unchanged
+  horizontal                  Flip the coordinate system horizontally
+  vertical                    Flip the coordinate system vertically
+  rotate                      Rotate the coordinate system 180 degrees; equivalent to horizontal + vertical
+  --swap_xy                   Swap x and y coordinate axes
+  horizontal + --swap_xy      Rotate the coordinate system 90 degrees counterclockwise
+  vertical + --swap_xy        Rotate the coordinate system 90 degrees clockwise
 
 StarDist Quality Control Options:
   --top_value <num>              Top value threshold for image quality check (default: 50)
@@ -35,6 +45,7 @@ StarDist Detection Options:
 
 Pixi environment options:
   --pixi_env <name>                   Name of the Pixi environment to use (optional; default: stardist)
+  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
   -h, --help                      Show this help message and exit
@@ -73,6 +84,7 @@ pixel_length=${pixel_length:-0.294}
 put_text=${put_text:-True}
 font_size=${font_size:-1}
 orientation=${orientation:-normal}
+swap_xy=${swap_xy:-False}
 
 # StarDist Quality Control Options
 top_value=${top_value:-50}
@@ -86,6 +98,14 @@ cutoff=${cutoff:-100}
 
 # Pixi environment options
 pixi_env=${pixi_env:-stardist}
+pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
+
+run_pixi() {
+  (
+    cd "$pixi_env_dir" || exit 1
+    pixi run -e "$pixi_env" "$@"
+  )
+}
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -96,7 +116,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         # Output Options
         -r|--result_path)
-            output_path=$2
+            result_path=$2
             shift 2
             ;;
         # Image Processing Options
@@ -107,7 +127,8 @@ while [[ $# -gt 0 ]]; do
         --interval) interval=$2; shift 2 ;;
         --put_text) put_text=$2; shift 2 ;;
         --font_size) font_size=$2; shift 2 ;;
-        -o|--orientation) orientation=$2; shift 2 ;;
+        --orientation) orientation=$2; shift 2 ;;
+        --swap_xy) swap_xy=True; shift ;;
         --scratch) scratch=$2; shift 2 ;;
         # StarDist Quality Control Options
         --top_value) top_value=$2; shift 2 ;;
@@ -118,6 +139,7 @@ while [[ $# -gt 0 ]]; do
         --nms_thresh) nms_thresh=$2; shift 2 ;;
         --cutoff) cutoff=$2; shift 2 ;;
         --pixi_env) pixi_env=$2; shift 2 ;;
+        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
         # Other Options
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -139,25 +161,30 @@ fi
 image_dir=$(dirname "$image_path")
 image_name=$(basename "$image_path")
 
-if [ -z "$output_path" ]; then
-    output_path=$image_dir
+if [ -z "$result_path" ]; then
+    result_path=$image_dir
 fi
 
-output_path=$(normalize_dir_path "$output_path")
+result_path=$(normalize_dir_path "$result_path")
 if [ -n "$scratch" ]; then
     scratch=$(normalize_dir_path "$scratch")
 fi
 
-mkdir -p "$output_path"
+mkdir -p "$result_path"
 
 case "$orientation" in
     normal|horizontal|vertical|rotate)
         ;;
     *)
-        echo "Error: -o/--orientation must be one of normal, horizontal, vertical, rotate" >&2
+        echo "Error: --orientation must be one of normal, horizontal, vertical, rotate" >&2
         exit 1
         ;;
 esac
+
+if [ ! -d "$pixi_env_dir" ]; then
+    echo "Error: pixi environment dir does not exist: $pixi_env_dir" >&2
+    exit 1
+fi
 
 if [ -n "$scratch" ]; then
     mkdir -p "$scratch/image"
@@ -167,10 +194,10 @@ if [ -n "$scratch" ]; then
     run_result_path="$scratch/result"
 else
     run_image_path="$image_path"
-    run_result_path="$output_path"
+    run_result_path="$result_path"
 fi
 
-pixi run -e "$pixi_env" python "$PYTHON_DIR/stardist_segment.py" \
+run_pixi python "$PYTHON_DIR/stardist_segment.py" \
   -ip "$run_image_path" \
   -r "$run_result_path" \
   --x_spots_number $x_spots_number \
@@ -185,14 +212,15 @@ pixi run -e "$pixi_env" python "$PYTHON_DIR/stardist_segment.py" \
   -m $model_name \
   -pt $prob_thresh \
   -nt $nms_thresh \
-  --orientation "$orientation"
+  --orientation "$orientation" \
+  $([ "$swap_xy" = True ] && printf %s --swap_xy)
 
-pixi run -e "$pixi_env" python "$PYTHON_DIR/cell_filter.py" \
+run_pixi python "$PYTHON_DIR/cell_filter.py" \
   -f "$run_result_path" \
   -c $cutoff
 
 if [ -n "$scratch" ]; then
-    cp -r "$scratch/result"/* "$output_path/"
+    cp -r "$scratch/result"/* "$result_path/"
     rm -rf "$scratch/image"
     rm -rf "$scratch/result"
 fi

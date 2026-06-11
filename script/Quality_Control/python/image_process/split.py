@@ -27,23 +27,30 @@ def normalize_orientation(value):
     return orientation
 
 
-def split_image(image_path, config, output_path, result_path, put_text, font_size, orientation='normal'):
+def split_image(image_path, config, output_path, result_path, put_text, font_size, orientation='normal', swap_xy=False):
     img = cv2.imread(image_path)
     x_start_list = [int(x * (config.length_spot + config.interval) / config.pixel_length) for x in range(0, config.x_spots_number, 1)]
     y_start_list = [int(y * (config.length_spot + config.interval) / config.pixel_length) for y in range(0, config.y_spots_number, 1)]
     x_end_list = [x_start_list[i] + int(config.length_spot / config.pixel_length) for i in range(len(x_start_list))]
     y_end_list = [y_start_list[i] + int(config.length_spot / config.pixel_length) for i in range(len(y_start_list))]
+
+    output_x_count = config.y_spots_number if swap_xy else config.x_spots_number
+    output_y_count = config.x_spots_number if swap_xy else config.y_spots_number
     reverse_x = orientation in ('horizontal', 'rotate')
     reverse_y = orientation in ('vertical', 'rotate')
-    x_indices = list(range(config.x_spots_number))
-    y_indices = list(range(config.y_spots_number))
-    x_crop_indices = list(reversed(x_indices)) if reverse_x else x_indices
-    y_crop_indices = list(reversed(y_indices)) if reverse_y else y_indices
 
-    for x, crop_x in tqdm(list(zip(x_indices, x_crop_indices)), desc='Splitting image'):
-        x_s = x_start_list[crop_x]
-        x_e = x_end_list[crop_x]
-        for y, crop_y in zip(y_indices, y_crop_indices):
+    def get_crop_indices(x, y):
+        mapped_x = output_x_count - 1 - x if reverse_x else x
+        mapped_y = output_y_count - 1 - y if reverse_y else y
+        if swap_xy:
+            return mapped_y, mapped_x
+        return mapped_x, mapped_y
+
+    for x in tqdm(range(output_x_count), desc='Splitting image'):
+        for y in range(output_y_count):
+            crop_x, crop_y = get_crop_indices(x, y)
+            x_s = x_start_list[crop_x]
+            x_e = x_end_list[crop_x]
             y_s = y_start_list[crop_y]
             y_e = y_end_list[crop_y]
             start_point = (int(x_s), int(y_s))
@@ -69,6 +76,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--put_text', type=str_to_bool, default=True, help='Whether to put text on the image (True/False, yes/no, 1/0)')
     parser.add_argument('-fs', '--font_size', type=int, default=1, help='Font size of the text')
     parser.add_argument('--orientation', type=normalize_orientation, default='normal', help='Grid origin orientation: normal, horizontal, vertical, or rotate')
+    parser.add_argument('--swap_xy', action='store_true', help='Swap x and y grid axes after applying orientation')
     args = parser.parse_args()
 
     image_path = args.file_path
@@ -82,6 +90,7 @@ if __name__ == '__main__':
     put_text = args.put_text
     font_size = args.font_size
     orientation = args.orientation
+    swap_xy = args.swap_xy
 
     config = PlotConfig(x_spots_number, y_spots_number, length_spot, interval, pixel_length)
-    split_image(image_path, config, output_path, result_path, put_text=put_text, font_size=font_size, orientation=orientation)
+    split_image(image_path, config, output_path, result_path, put_text=put_text, font_size=font_size, orientation=orientation, swap_xy=swap_xy)

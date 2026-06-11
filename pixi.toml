@@ -26,6 +26,9 @@ fastp = ">=1.1.0,<2"
 bio = ">=1.8.1,<2"
 seqtk = ">=1.5,<2"
 
+[feature.dbit.pypi-dependencies]
+darlin-core = { git = "https://github.com/JarningGau/darlin-core", rev = "1.1.0" }
+
 [feature.stardist.dependencies]
 python = "3.10.*"
 

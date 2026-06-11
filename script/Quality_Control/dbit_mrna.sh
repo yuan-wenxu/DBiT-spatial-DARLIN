@@ -251,9 +251,9 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             -r1 "$step1_r1" -r2 "$step1_r2" \
             -o "$step1_out" -s "$sample_name" \
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
-            -cl "$compression_level" \
-            -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
-            -bc_max_dist "$bc_max_dist" &> "$step1_log"
+            -cl "$compression_level" -m "$mm_rate" \
+            -l1 "$linker1" -l2 "$linker2" -cb "true" \
+            -bmd "$bc_max_dist" &> "$step1_log"
 
         # Keep step1 outputs in original output path for future skip checks.
         if $use_scratch; then

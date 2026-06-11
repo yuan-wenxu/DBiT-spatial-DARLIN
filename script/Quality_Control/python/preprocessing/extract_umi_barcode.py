@@ -9,14 +9,29 @@ UMI_LEN = 10
 DEFAULT_LINKER_WINDOW = 2
 Match = namedtuple("Match", ["start", "end"])
 
+
+def str_to_bool(value):
+    """Convert str to bool"""
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif value.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError(f'Boolean value expected, got: {value}')
+    
+
 def get_mm_dist(seq, rate, n = 2):
     # allow 5% mismatch, at least n
     return max(int(len(seq) * rate), n)
+
 
 def read_whitelist(whitelist_path):
     with open(whitelist_path) as f:
         return set(line.strip() for line in f if line.strip())
     
+
 def build_barcode_correction_map(whitelist, max_dist):
     """
     Build O(1) lookup map for barcode correction.
@@ -40,11 +55,13 @@ def build_barcode_correction_map(whitelist, max_dist):
     # drop ambiguous
     return {k: v for k, v in correction_map.items() if v is not None}
 
+
 def open_fastq_file(file_path):
     """Open text or gz FASTQ in text mode."""
     if file_path.endswith(".gz"):
         return gzip.open(file_path, "rt")
     return open(file_path, "r")
+
 
 def iter_fastq_raw(handle):
     """
@@ -72,10 +89,12 @@ def iter_fastq_raw(handle):
             raise ValueError(f"Length mismatch (seq {len(seq)} vs qual {len(qual)}) at read {read_id}")
         yield read_id, seq, qual
 
+
 def get_search_window(seq_len, expected_start, pattern_len, window):
     start = max(0, expected_start - window)
     end = min(seq_len, expected_start + pattern_len + window)
     return start, end
+
 
 def find_exact_match_near(seq_str, pattern, expected_start, window):
     """Return one exact match in the expected window, or [] if none/ambiguous."""
@@ -90,11 +109,13 @@ def find_exact_match_near(seq_str, pattern, expected_start, window):
     start = window_start + first
     return [Match(start, start + len(pattern))]
 
+
 def find_fuzzy_matches_near(seq_str, pattern, max_errors, expected_start, window):
     """Fallback fuzzy matching in a small window around the expected linker position."""
     window_start, window_end = get_search_window(len(seq_str), expected_start, len(pattern), window)
     matches = find_near_matches(pattern, seq_str[window_start:window_end], max_l_dist=max_errors)
     return [Match(window_start + match.start, window_start + match.end) for match in matches]
+
 
 class MatchResult:
     """Container for match results"""
@@ -103,6 +124,7 @@ class MatchResult:
         self.linker2_matches = []
         self.match_method = ""  # "exact", "fuzzy", "mixed", or "failed"
         self.match_stats = [-1, -1, -1]  # [all, linker1, linker2], 0 represents fuzzy, 1 represents exact
+
 
 def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_window=DEFAULT_LINKER_WINDOW):
     """
@@ -157,6 +179,7 @@ def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_w
 
     return result
 
+
 def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     """
     seq/qual are strings. Extract:
@@ -173,6 +196,7 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     umi = seq[linker1_end: linker1_end + UMI_LEN]
     umi_q = qual[linker1_end: linker1_end + UMI_LEN]
     return barcode, umi, barcode_q, umi_q
+
 
 def correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map):
     """Use global maps built from whitelists; return corrected 16bp or None."""
@@ -193,10 +217,12 @@ def qual_to_string(qual):
         return qual
     return ''.join(chr(q + 33) for q in qual)
 
+
 def write_seqrecord_to_fastq(record_id, seq, qual, f):
     """One-shot write of 4 FASTQ lines; quality is expected to be a string."""
     qual_str = qual_to_string(qual)
     f.write(f"@{record_id}\n{seq}\n+\n{qual_str}\n")
+
 
 class MatchConfig:
     # extract config
@@ -205,6 +231,7 @@ class MatchConfig:
         self.linker2 = linker2
         self.mm_rate = mm_rate
 
+
 class BarcodeConfig:
     # barcode correction config
     def __init__(self, barcodeA_whitelist, barcodeB_whitelist, bc_max_dist):
@@ -212,7 +239,8 @@ class BarcodeConfig:
         self.barcodeB_whitelist = barcodeB_whitelist
         self.bc_max_dist = bc_max_dist
 
-def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level):
+
+def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level, correct_barcode):
 
     exact_match_stats = [0, 0, 0, 0]
     fuzzy_match_stats = [0, 0, 0, 0]
@@ -228,14 +256,19 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
     print(f"Output files: {output_dir}/{sample}_bc_match_R1.fq.gz and {output_dir}/{sample}_bc_match_R2.fq.gz")
     print(f"Compression level: {compression_level}.")
 
-    print("Buliding barcode correction maps...")
-    bcA_wl = read_whitelist(barcode_config.barcodeA_whitelist)
-    bcB_wl = read_whitelist(barcode_config.barcodeB_whitelist)
-    print(f"Barcode A whitelist size: {len(bcA_wl)}")
-    print(f"Barcode B whitelist size: {len(bcB_wl)}")
-    print(f"Total combination {len(bcA_wl) * len(bcB_wl)}")
-    barcodeA_correction_map = build_barcode_correction_map(bcA_wl, max_dist = barcode_config.bc_max_dist)
-    barcodeB_correction_map = build_barcode_correction_map(bcB_wl, max_dist = barcode_config.bc_max_dist)
+    if correct_barcode:
+        print("Buliding barcode correction maps...")
+        bcA_wl = read_whitelist(barcode_config.barcodeA_whitelist)
+        bcB_wl = read_whitelist(barcode_config.barcodeB_whitelist)
+        print(f"Barcode A whitelist size: {len(bcA_wl)}")
+        print(f"Barcode B whitelist size: {len(bcB_wl)}")
+        print(f"Total combination {len(bcA_wl) * len(bcB_wl)}")
+        barcodeA_correction_map = build_barcode_correction_map(bcA_wl, max_dist = barcode_config.bc_max_dist)
+        barcodeB_correction_map = build_barcode_correction_map(bcB_wl, max_dist = barcode_config.bc_max_dist)
+    else:
+        print("Skipping barcode correction.")
+        barcodeA_correction_map = {}
+        barcodeB_correction_map = {}
 
     out_r1 = gzip.open(f"{output_dir}/{sample}_bc_match_R1.fq.gz", "wt", compresslevel = compression_level)
     out_r2 = gzip.open(f"{output_dir}/{sample}_bc_match_R2.fq.gz", "wt", compresslevel = compression_level)
@@ -249,7 +282,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                 linker2_end = match_result.linker2_matches[0].end
                 linker1_end = match_result.linker1_matches[0].end
                 barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
-                barcode = correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map)
+                if correct_barcode:
+                    barcode = correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map)
                 if barcode is None:
                     continue
                 if len(barcode) != 16 or len(umi) != 10:
@@ -277,6 +311,7 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
     print(f"Overall time: {time.time() - overall_start_time:.2f} seconds.")
     print("=" * 80)
 
+
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()
@@ -294,6 +329,7 @@ if __name__ == '__main__':
     argparser.add_argument('-m', '--mm_rate', type = float, default = 0.05, help = 'Mismatch rate for linker sequences')
     argparser.add_argument('--compression_level', type = int, default = 6, help = 'Compression level for output fastq files')
     argparser.add_argument('--bc_max_dist', type = int, default = 1, help = 'Maximum distance for barcode correction')
+    argparser.add_argument('--correct_barcode', type=str_to_bool, default=False, help='Whether to perform barcode correction')
 
     args = argparser.parse_args()
 
@@ -308,8 +344,9 @@ if __name__ == '__main__':
     mm_rate = args.mm_rate  # 5% mismatch
     compression_level = args.compression_level  # compression level for output fastq files
     bc_max_dist = args.bc_max_dist  # maximum distance for barcode correction
+    correct_barcode = args.correct_barcode  # whether to perform barcode correction
 
     match_config = MatchConfig(linker1, linker2, mm_rate)
     barcode = BarcodeConfig(barcodeA_whitelist, barcodeB_whitelist, bc_max_dist)
 
-    main(match_config, barcode, reads1, reads2, output_dir, compression_level)
+    main(match_config, barcode, reads1, reads2, output_dir, compression_level, correct_barcode)

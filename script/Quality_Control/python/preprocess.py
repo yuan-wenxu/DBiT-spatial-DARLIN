@@ -22,7 +22,7 @@ def str_to_bool(value):
     else:
         raise argparse.ArgumentTypeError(f'Boolean value expected, got: {value}')
 
-def preprocess(preconfig, match_config, barcode_config, reads1, reads2, output):
+def preprocess(preconfig, match_config, barcode_config, reads1, reads2, output, correct_barcode):
 
     output_name = 'fastq'
 
@@ -44,7 +44,7 @@ def preprocess(preconfig, match_config, barcode_config, reads1, reads2, output):
         os.mkdir(output_path)
     except:
         pass
-    extract_umi_barcode(match_config, barcode_config, reads1, reads2, output_path, preconfig.sample, preconfig.compression_level)
+    extract_umi_barcode(match_config, barcode_config, reads1, reads2, output_path, preconfig.sample, preconfig.compression_level, correct_barcode)
     print(output_path)
 
 if __name__ == '__main__':
@@ -68,7 +68,8 @@ if __name__ == '__main__':
 
     parser.add_argument('-b1', '--barcodeA_whitelist', type = str, help = 'Path to barcode A whitelist file')
     parser.add_argument('-b2', '--barcodeB_whitelist', type = str, help = 'Path to barcode B whitelist file')
-    parser.add_argument('-bc_max_dist', '--bc_max_dist', type = int, default = 1, help = 'Maximum distance for barcode correction')
+    parser.add_argument('-bmd', '--bc_max_dist', type = int, default = 1, help = 'Maximum distance for barcode correction')
+    parser.add_argument('-cb', '--correct_barcode', type=str_to_bool, default=False, help='Whether to perform barcode correction')
 
     args = parser.parse_args()
 
@@ -90,10 +91,10 @@ if __name__ == '__main__':
     barcodeA_whitelist = args.barcodeA_whitelist
     barcodeB_whitelist = args.barcodeB_whitelist
     bc_max_dist = args.bc_max_dist
-
+    correct_barcode = args.correct_barcode
     preconfig = PreConfig(locus, core, base_quality, sample, compression_level, cut)
 
     match_config = MatchConfig(linker1, linker2, mm_rate)
     barcode_config = BarcodeConfig(barcodeA_whitelist, barcodeB_whitelist, bc_max_dist)
 
-    preprocess(preconfig, match_config, barcode_config, reads1, reads2, output)
+    preprocess(preconfig, match_config, barcode_config, reads1, reads2, output, correct_barcode)

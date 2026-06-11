@@ -15,7 +15,7 @@ Output Options:
 
 Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file
-  -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: False)
+  -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: True)
 
   Advanced options:
     --cores <num>                     Number of cores for cutadapt  (default: 8)
@@ -24,15 +24,20 @@ Preprocessing Options:
     --linker1 <seq>                   Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --linker2 <seq>                   Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
     --mm_rate <float>                 Mismatch rate for linker sequences (default: 0.05)
-    --bc_max_dist <num>               Maximum distance for barcode correction (default: 1)
     --scratch <path>                  Path to scratch directory for intermediate files (optional)
 
 DARLIN Correction Options:
-  --umi_hd_threshold <num>            Edit-distance threshold for UMI clustering within each SR (default: 1)
-  --lb_error_rate <float>             Per-base error rate used to derive LB edit-distance threshold (default: 0.02)
-  --major_fraction_threshold <float>  Per (CR, UR) group: keep LR with reads fraction >= this value (default: 0.8)
-  --reads_cutoff <num>                Only keep (SR, UR, LR) with supported reads >= this value (default: 10)
-  --slope_cutoff <num>                Only keep SR (spots) with k = reads/UMIs >= this value (default: 10)
+  --sb_len <num>                     Length of concatenated spot barcode (default: 16)
+  --ub_len <num>                     Length of UMI barcode (default: 10)
+  --umi_hd_threshold <num>           Hamming-distance threshold for UMI correction within each SR (default: 1)
+  --min_lb_len <num>                 Minimum lineage barcode length (default: 20)
+  --initial_reads_cutoff <num>       Minimum reads per raw LB/SB/UB molecule (default: 100)
+  --lb_error_rate <float>            Lineage barcode correction error rate (default: 0.01)
+  --lb_min_hd <num>                  Minimum HD threshold for lineage barcode correction (default: 1)
+  --major_fraction_threshold <float> Minimum major LR fraction per SR/UR (default: 0.8)
+  --reads_fraction_mode <sum|max>    Denominator for major LR filtering (default: sum)
+  --reads_cutoff <num>               Minimum reads per final SR/UR/LR row (default: 10)
+  --slope_cutoff <num>               Minimum reads/UMIs per SR (default: 10)
 
 Pixi environment options:
   --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
@@ -53,7 +58,7 @@ EOF
 
 # Set default values
 # Preprocessing Options
-cutadapt=${cutadapt:-False}
+cutadapt=${cutadapt:-True}
 
 # Preprocessing Advanced options
 cores=${cores:-8}
@@ -62,13 +67,18 @@ compression_level=${compression_level:-6}
 linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
 mm_rate=${mm_rate:-0.05}
-bc_max_dist=${bc_max_dist:-1}
 scratch=${scratch:-}
 
 # DARLIN Correction Options
+sb_len=${sb_len:-16}
+ub_len=${ub_len:-10}
 umi_hd_threshold=${umi_hd_threshold:-1}
-lb_error_rate=${lb_error_rate:-0.02}
+min_lb_len=${min_lb_len:-20}
+initial_reads_cutoff=${initial_reads_cutoff:-100}
+lb_error_rate=${lb_error_rate:-0.01}
+lb_min_hd=${lb_min_hd:-1}
 major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
+reads_fraction_mode=${reads_fraction_mode:-sum}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
 
@@ -138,12 +148,17 @@ while [[ $# -gt 0 ]]; do
         --linker1) linker1=$2; shift 2 ;;
         --linker2) linker2=$2; shift 2 ;;
         --mm_rate) mm_rate=$2; shift 2 ;;
-        --bc_max_dist) bc_max_dist=$2; shift 2 ;;
         --scratch) scratch=$2; shift 2 ;;
         # DARLIN Correction Options
+        --sb_len) sb_len=$2; shift 2 ;;
+        --ub_len) ub_len=$2; shift 2 ;;
         --umi_hd_threshold) umi_hd_threshold=$2; shift 2 ;;
+        --min_lb_len) min_lb_len=$2; shift 2 ;;
+        --initial_reads_cutoff) initial_reads_cutoff=$2; shift 2 ;;
         --lb_error_rate) lb_error_rate=$2; shift 2 ;;
-        --major_fraction_threshold) major_fraction_threshold_molecule=$2; shift 2 ;;
+        --lb_min_hd) lb_min_hd=$2; shift 2 ;;
+        --major_fraction_threshold_molecule) major_fraction_threshold_molecule=$2; shift 2 ;;
+        --reads_fraction_mode) reads_fraction_mode=$2; shift 2 ;;
         --reads_cutoff) reads_cutoff=$2; shift 2 ;;
         --slope_cutoff) slope_cutoff=$2; shift 2 ;;
         --pixi_env) pixi_env=$2; shift 2 ;;
@@ -157,6 +172,17 @@ done
 if [ -z "$fastq_path" ]; then
     echo "Error: -f (fastq_path) is required" >&2
     echo "Use -h or --help for usage information" >&2
+    exit 1
+fi
+
+if [ -z "$whitelist_path" ]; then
+    echo "Error: -w (whitelist) is required" >&2
+    echo "Use -h or --help for usage information" >&2
+    exit 1
+fi
+
+if [[ "$reads_fraction_mode" != "sum" && "$reads_fraction_mode" != "max" ]]; then
+    echo "Error: --reads_fraction_mode must be 'sum' or 'max'" >&2
     exit 1
 fi
 
@@ -212,7 +238,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         -l "$locus" -c "$cores" -q "$base_quality" \
         -cl "$compression_level" -cut "$cutadapt" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
-        -bc_max_dist "$bc_max_dist" &> "$output_path/${sample_name}_preprocess.log"
+        -cb "false" &> "$output_path/${sample_name}_preprocess.log"
 
     tmp_path=$(tail -n 1 $output_path/${sample_name}_preprocess.log)
 
@@ -222,12 +248,19 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     run_pixi python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.fq.gz" \
-        -o "$results" -d "$cutadapt" \
+        -o "$results" -d true \
+        --whitelist "$whitelist_path" \
+        --sb-len "$sb_len" \
+        --ub-len "$ub_len" \
         --umi_hd_threshold "$umi_hd_threshold" \
-        --lb_error_rate "$lb_error_rate" \
-        --major_fraction_threshold_molecule "$major_fraction_threshold_molecule" \
-        --reads_cutoff "$reads_cutoff" \
-        --slope_cutoff "$slope_cutoff" &> "$results/dbit.log"
+        --min-lb-len "$min_lb_len" \
+        --initial-reads-cutoff "$initial_reads_cutoff" \
+        --lb-error-rate "$lb_error_rate" \
+        --lb-min-hd "$lb_min_hd" \
+        --major-fraction-threshold-molecule "$major_fraction_threshold_molecule" \
+        --reads-fraction-mode "$reads_fraction_mode" \
+        --final-reads-cutoff "$reads_cutoff" \
+        --slope-cutoff "$slope_cutoff" &> "$results/dbit.log"
 
     run_pixi python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \

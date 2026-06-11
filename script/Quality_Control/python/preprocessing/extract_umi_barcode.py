@@ -2,6 +2,12 @@ import gzip
 from fuzzysearch import find_near_matches
 import time
 import argparse
+from collections import namedtuple
+
+BARCODE_LEN = 8
+UMI_LEN = 10
+DEFAULT_LINKER_WINDOW = 2
+Match = namedtuple("Match", ["start", "end"])
 
 def get_mm_dist(seq, rate, n = 2):
     # allow 5% mismatch, at least n
@@ -66,26 +72,29 @@ def iter_fastq_raw(handle):
             raise ValueError(f"Length mismatch (seq {len(seq)} vs qual {len(qual)}) at read {read_id}")
         yield read_id, seq, qual
 
-def find_exact_matches(seq_str, patterns):
-    """
-    Fast exact matching using Python's built-in string.find()
-    Returns: dict with pattern_name -> [positions] mapping
-    """
-    matches = {}
-    for pattern_name, pattern_seq in patterns.items():
-        positions, start = [], 0
-        while True:
-            pos = seq_str.find(pattern_seq, start)
-            if pos == -1:
-                break
-            positions.append(pos)
-            start = pos + 1  # allow overlapping
-        matches[pattern_name] = positions
-    return matches
+def get_search_window(seq_len, expected_start, pattern_len, window):
+    start = max(0, expected_start - window)
+    end = min(seq_len, expected_start + pattern_len + window)
+    return start, end
 
-def find_fuzzy_matches(seq_str, pattern, max_errors):
-    """Fallback fuzzy matching (Levenshtein) when exact matching fails."""
-    return find_near_matches(pattern, seq_str, max_l_dist=max_errors)
+def find_exact_match_near(seq_str, pattern, expected_start, window):
+    """Return one exact match in the expected window, or [] if none/ambiguous."""
+    window_start, window_end = get_search_window(len(seq_str), expected_start, len(pattern), window)
+    sub_seq = seq_str[window_start:window_end]
+    first = sub_seq.find(pattern)
+    if first == -1:
+        return []
+    second = sub_seq.find(pattern, first + 1)
+    if second != -1:
+        return []
+    start = window_start + first
+    return [Match(start, start + len(pattern))]
+
+def find_fuzzy_matches_near(seq_str, pattern, max_errors, expected_start, window):
+    """Fallback fuzzy matching in a small window around the expected linker position."""
+    window_start, window_end = get_search_window(len(seq_str), expected_start, len(pattern), window)
+    matches = find_near_matches(pattern, seq_str[window_start:window_end], max_l_dist=max_errors)
+    return [Match(window_start + match.start, window_start + match.end) for match in matches]
 
 class MatchResult:
     """Container for match results"""
@@ -95,55 +104,50 @@ class MatchResult:
         self.match_method = ""  # "exact", "fuzzy", "mixed", or "failed"
         self.match_stats = [-1, -1, -1]  # [all, linker1, linker2], 0 represents fuzzy, 1 represents exact
 
-def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm):
+def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_window=DEFAULT_LINKER_WINDOW):
     """
     Try exact matches first; fall back to fuzzy per element if needed.
+    Linker positions are searched only near the expected DBiT amplicon layout:
+    barcodeB, linker2, barcodeA, linker1, UMI.
     Require exactly one hit for each element.
     """
     result = MatchResult()
-    patterns = {'linker1': linker1, 'linker2': linker2}
-    exact = find_exact_matches(seq_str, patterns)
-
-    exact_success = (len(exact['linker1']) == 1 and len(exact['linker2']) == 1)
-    if exact_success:
-        result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
-        result.linker2_matches = [type('Match', (), {'start': exact['linker2'][0], 'end': exact['linker2'][0] + len(linker2)})()]
-        result.match_method = "exact"
-        result.match_stats = [1, -1, -1]
-        return result
 
     mixed_success = True
     methods_used = []
 
-    # linker1
-    if len(exact['linker1']) == 1:
-        result.linker1_matches = [type('Match', (), {'start': exact['linker1'][0], 'end': exact['linker1'][0] + len(linker1)})()]
+    # linker2 starts immediately after barcodeB.
+    linker2_expected_start = BARCODE_LEN
+    result.linker2_matches = find_exact_match_near(seq_str, linker2, linker2_expected_start, linker_window)
+    if len(result.linker2_matches) == 1:
         methods_used.append('exact')
-        result.match_stats[1] = 1
+        result.match_stats[2] = 1
     else:
-        result.linker1_matches = find_fuzzy_matches(seq_str, linker1, linker1_mm)
+        result.linker2_matches = find_fuzzy_matches_near(seq_str, linker2, linker2_mm, linker2_expected_start, linker_window)
         methods_used.append('fuzzy')
-        result.match_stats[1] = 0
-        if len(result.linker1_matches) != 1:
+        result.match_stats[2] = 0
+        if len(result.linker2_matches) != 1:
             mixed_success = False
 
-    # linker2
+    # linker1 starts immediately after barcodeA.
     if mixed_success:
-        if len(exact['linker2']) == 1:
-            result.linker2_matches = [type('Match', (), {'start': exact['linker2'][0], 'end': exact['linker2'][0] + len(linker2)})()]
+        linker1_expected_start = result.linker2_matches[0].end + BARCODE_LEN
+        result.linker1_matches = find_exact_match_near(seq_str, linker1, linker1_expected_start, linker_window)
+        if len(result.linker1_matches) == 1:
             methods_used.append('exact')
-            result.match_stats[2] = 1
+            result.match_stats[1] = 1
         else:
-            result.linker2_matches = find_fuzzy_matches(seq_str, linker2, linker2_mm)
+            result.linker1_matches = find_fuzzy_matches_near(seq_str, linker1, linker1_mm, linker1_expected_start, linker_window)
             methods_used.append('fuzzy')
-            result.match_stats[2] = 0
-            if len(result.linker2_matches) != 1:
+            result.match_stats[1] = 0
+            if len(result.linker1_matches) != 1:
                 mixed_success = False
 
-    
     if mixed_success:
         result.match_method = "mixed" if 'fuzzy' in methods_used else "exact"
-        if result.match_stats[1] == 0 and result.match_stats[2] == 0:
+        if result.match_stats[1] == 1 and result.match_stats[2] == 1:
+            result.match_stats = [1, -1, -1]
+        elif result.match_stats[1] == 0 and result.match_stats[2] == 0:
             result.match_stats = [0, -1, -1]
     else:
         result.match_method = "failed"
@@ -160,14 +164,14 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
       - barcodeB: 8bp immediately before linker2
       - umi: 10bp immediately after linker1
     """
-    barcodeA = seq[linker2_end: linker2_end + 8]
-    barcodeB = seq[linker2_start - 8: linker2_start]
-    barcodeA_q = qual[linker2_end: linker2_end + 8]
-    barcodeB_q = qual[linker2_start - 8: linker2_start]
+    barcodeA = seq[linker2_end: linker2_end + BARCODE_LEN]
+    barcodeB = seq[linker2_start - BARCODE_LEN:linker2_start]
+    barcodeA_q = qual[linker2_end: linker2_end + BARCODE_LEN]
+    barcodeB_q = qual[linker2_start - BARCODE_LEN:linker2_start]
     barcode = barcodeB + barcodeA
     barcode_q = barcodeB_q + barcodeA_q
-    umi = seq[linker1_end: linker1_end + 10]
-    umi_q = qual[linker1_end: linker1_end + 10]
+    umi = seq[linker1_end: linker1_end + UMI_LEN]
+    umi_q = qual[linker1_end: linker1_end + UMI_LEN]
     return barcode, umi, barcode_q, umi_q
 
 def correct_barcode(barcode, barcodeA_correction_map, barcodeB_correction_map):

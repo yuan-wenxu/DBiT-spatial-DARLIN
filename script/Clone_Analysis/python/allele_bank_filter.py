@@ -4,20 +4,20 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-from darlinpy import analyze_sequences
+from darlin_core import analyze_sequences
 
 
 LABEL_INFO = {
     "CA": {
-        "bank_file": "allele_bank_Gr_CA.tsv",
+        "bank_file": "allele_bank_Gr_CA.csv.gz",
         "config": "Col1a1",
     },
     "RA": {
-        "bank_file": "allele_bank_Gr_RA.tsv",
+        "bank_file": "allele_bank_Gr_RA.csv.gz",
         "config": "Rosa",
     },
     "TA": {
-        "bank_file": "allele_bank_Gr_TA.tsv",
+        "bank_file": "allele_bank_Gr_TA.csv.gz",
         "config": "Tigre",
     },
 }
@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bank-dir",
-        help="Directory containing allele_bank_Gr_*.tsv files.",
+        help="Directory containing allele_bank_Gr_*.csv.gz files.",
     )
     parser.add_argument(
         "--min-sequence-length",
@@ -60,20 +60,23 @@ def parse_args() -> argparse.Namespace:
 def load_bank_sequences(bank_path: Path) -> set[str]:
     if not bank_path.exists():
         raise SystemExit(f"Bank file not found: {bank_path}")
-
-    bank_df = pd.read_csv(bank_path, sep="\t", dtype=str, keep_default_na=False)
+    
+    if bank_path.suffix == ".gz":
+        bank_df = pd.read_csv(bank_path, sep=",", dtype=str, keep_default_na=False, compression="gzip")
+    else:
+        bank_df = pd.read_csv(bank_path, sep=",", dtype=str, keep_default_na=False)
     if bank_df.empty:
         return set()
 
-    if "mutations" not in bank_df.columns:
+    if "allele" not in bank_df.columns:
         raise SystemExit(
-            f"Bank file {bank_path} is missing required column: mutations"
+            f"Bank file {bank_path} is missing required column: allele"
         )
 
     return {
-        str(mutation).strip()
-        for mutation in bank_df["mutations"].tolist()
-        if str(mutation).strip()
+        str(allele).strip()
+        for allele in bank_df["allele"].tolist()
+        if str(allele).strip()
     }
 
 
@@ -208,7 +211,6 @@ def filter_dataframe_by_allele_bank(
         analyze_result[[lr_col, "mutations"]],
         on=lr_col,
         how="inner",
-        copy=False,
     ).copy()
 
 
@@ -220,7 +222,7 @@ def process_label(
     config: str,
     min_sequence_length: int,
 ) -> None:
-    input_path = input_dir / label / "cellfiltered.csv"
+    input_path = input_dir / label / "cellfiltered.n_LR_le_count.csv"
     if not input_path.exists():
         raise SystemExit(f"Input file not found: {input_path}")
 
@@ -247,7 +249,7 @@ def process_label(
     )
 
     print(f"{label}: {len(frame)} rows -> {len(filtered)} rows after bank filtering")
-    out_path = output_dir / label / "cellfiltered.bank_filtered.csv"
+    out_path = output_dir / label / "cellfiltered.n_LR_le_count.bank_filtered.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     filtered.to_csv(out_path, index=False)
     print(f"  Saved: {out_path}")

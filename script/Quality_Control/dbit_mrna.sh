@@ -17,11 +17,15 @@ Preprocessing Options:
   -w, --whitelist <path>            Path to barcode whitelist file
 
   Advanced options:
-    --compression_level <num>        Compression level for gzip (default: 6)
+    --compression_level <num>        Compression level for gzip barcode FASTQ output (default: 6)
+    --gzip_output <bool>             Gzip barcode FASTQ output (default: false). false uses more disk space but can speed up preprocessing.
+    --gzip_after_preprocess <bool>   If gzip_output is false, compress barcode FASTQs after preprocessing with pigz/gzip (default: true)
     --linker1 <seq>                  Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --linker2 <seq>                  Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
     --mm_rate <float>                Mismatch rate for linker sequences (default: 0.05)
     --bc_max_dist <num>              Maximum distance for barcode correction (default: 1)
+    --preprocess_cores <num>         Number of worker processes for barcode extraction (default: 10)
+    --preprocess_batch_size <num>    Read pairs per barcode extraction worker batch (default: 50000)
     --scratch <path>                 Path to scratch directory for intermediate files (optional)
 
 STAR Alignment Options:
@@ -63,10 +67,14 @@ EOF
 
 # Preprocessing Advanced options
 compression_level=${compression_level:-6}
+gzip_output=${gzip_output:-false}
+gzip_after_preprocess=${gzip_after_preprocess:-true}
 linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
 mm_rate=${mm_rate:-0.05}
 bc_max_dist=${bc_max_dist:-1}
+preprocess_cores=${preprocess_cores:-10}
+preprocess_batch_size=${preprocess_batch_size:-50000}
 scratch=${scratch:-}
 
 # STAR Alignment Options
@@ -108,6 +116,17 @@ run_pixi() {
     )
 }
 
+compress_fastq_file() {
+    local fq="$1"
+    local threads="$2"
+    local level="$3"
+    if command -v pigz >/dev/null 2>&1; then
+        pigz -f -p "$threads" "-$level" "$fq"
+    else
+        gzip -f "-$level" "$fq"
+    fi
+}
+
 # Short options
 short_args=()
 while [[ $# -gt 0 ]]; do
@@ -145,10 +164,14 @@ while [[ $# -gt 0 ]]; do
         --whitelist) whitelist_path=$2; shift 2 ;;
         # Preprocessing Advanced options
         --compression_level) compression_level=$2; shift 2 ;;
+        --gzip_output) gzip_output=$2; shift 2 ;;
+        --gzip_after_preprocess) gzip_after_preprocess=$2; shift 2 ;;
         --linker1) linker1=$2; shift 2 ;;
         --linker2) linker2=$2; shift 2 ;;
         --mm_rate) mm_rate=$2; shift 2 ;;
         --bc_max_dist) bc_max_dist=$2; shift 2 ;;
+        --preprocess_cores) preprocess_cores=$2; shift 2 ;;
+        --preprocess_batch_size) preprocess_batch_size=$2; shift 2 ;;
         --scratch) scratch=$2; shift 2 ;;
         # STAR Alignment Options
         --genome_dir) genome_dir=$2; shift 2 ;;
@@ -215,7 +238,22 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     log_file="$orig_output_path/${sample_name}_preprocess.log"
     bam_file="$orig_output_path/results/$sample_name/Aligned.sortedByCoord.out.bam"
 
-    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.fq.gz)
+    gzip_after_enabled=false
+    if [[ "${gzip_after_preprocess,,}" =~ ^(true|yes|1)$ ]]; then
+        gzip_after_enabled=true
+    fi
+
+    if [[ "${gzip_output,,}" =~ ^(false|no|0)$ ]]; then
+        preprocess_bc_ext="fq"
+    else
+        preprocess_bc_ext="fq.gz"
+    fi
+    bc_ext="$preprocess_bc_ext"
+    if [ "$preprocess_bc_ext" = "fq" ] && $gzip_after_enabled; then
+        bc_ext="fq.gz"
+    fi
+
+    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.$bc_ext)
     pre_done=false
     star_done=false
     if ((${#pre_file[@]} > 0)) && [ -f "$log_file" ]; then pre_done=true; fi
@@ -253,7 +291,16 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             -b1 "$whitelist_path" -b2 "$whitelist_path" \
             -cl "$compression_level" -m "$mm_rate" \
             -l1 "$linker1" -l2 "$linker2" -cb "true" \
+            -c "$preprocess_cores" \
+            -bs "$preprocess_batch_size" \
+            -go "$gzip_output" \
             -bmd "$bc_max_dist" &> "$step1_log"
+
+        if [ "$preprocess_bc_ext" = "fq" ] && $gzip_after_enabled; then
+            pre_dir="$step1_out/fastq_umi_barcode"
+            compress_fastq_file "$pre_dir/${sample_name}_bc_match_R1.fq" "$preprocess_cores" "$compression_level" || exit 1
+            compress_fastq_file "$pre_dir/${sample_name}_bc_match_R2.fq" "$preprocess_cores" "$compression_level" || exit 1
+        fi
 
         # Keep step1 outputs in original output path for future skip checks.
         if $use_scratch; then
@@ -263,10 +310,10 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     fi
 
     # Resolve step2 input from existing/preprocessed files in original output path.
-    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.fq.gz)
+    pre_file=("$orig_output_path"/*barcode/${sample_name}_bc_match_R1.$bc_ext)
     if ((${#pre_file[@]} > 0)); then
         pre_r1="${pre_file[0]}"
-        pre_r2="${pre_r1%_R1.fq.gz}_R2.fq.gz"
+        pre_r2="${pre_r1%_R1.$bc_ext}_R2.$bc_ext"
         tmp_path="$(dirname "$pre_r1")"
     else
         echo "Error: missing preprocess outputs for $sample_name, skip STAR."
@@ -289,12 +336,17 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         fi
 
         mkdir -p "$star_results"
+        star_read_args=()
+        if [ "$bc_ext" = "fq.gz" ]; then
+            star_read_args=(--readFilesCommand zcat)
+        fi
+
         run_pixi STAR \
             --runMode alignReads \
             --runThreadN "$star_threads" \
             --genomeDir "$genome_dir" \
-            --readFilesCommand zcat \
-            --readFilesIn "$star_input/${sample_name}_bc_match_R2.fq.gz" "$star_input/${sample_name}_bc_match_R1.fq.gz" \
+            "${star_read_args[@]}" \
+            --readFilesIn "$star_input/${sample_name}_bc_match_R2.$bc_ext" "$star_input/${sample_name}_bc_match_R1.$bc_ext" \
             --outFileNamePrefix "$star_results/" \
             --outTmpDir "$star_results/solotmp" \
             --outSAMtype BAM SortedByCoordinate \

@@ -18,9 +18,12 @@ Preprocessing Options:
   -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: True)
 
   Advanced options:
-    --cores <num>                     Number of cores for cutadapt  (default: 8)
+    --cores <num>                     Number of cores for cutadapt and barcode extraction (default: 8)
+    --preprocess_batch_size <num>     Read pairs per barcode extraction worker batch (default: 50000)
     --base_quality <num>              Base quality score threshold (default: 10)
-    --compression_level <num>         Compression level for gzip (default: 6)
+    --compression_level <num>         Compression level for gzip barcode FASTQ output (default: 6)
+    --gzip_output <bool>              Gzip barcode FASTQ output (default: false). false uses more disk space but can speed up preprocessing.
+    --gzip_after_preprocess <bool>    If gzip_output is false, compress barcode FASTQs after preprocessing with pigz/gzip (default: true)
     --linker1 <seq>                   Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
     --linker2 <seq>                   Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
     --mm_rate <float>                 Mismatch rate for linker sequences (default: 0.05)
@@ -62,8 +65,11 @@ cutadapt=${cutadapt:-True}
 
 # Preprocessing Advanced options
 cores=${cores:-8}
+preprocess_batch_size=${preprocess_batch_size:-50000}
 base_quality=${base_quality:-10}
 compression_level=${compression_level:-6}
+gzip_output=${gzip_output:-false}
+gzip_after_preprocess=${gzip_after_preprocess:-true}
 linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
 linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
 mm_rate=${mm_rate:-0.05}
@@ -102,6 +108,17 @@ run_pixi() {
         cd "$pixi_env_dir" || exit 1
         pixi run -e "$pixi_env" "$@"
     )
+}
+
+compress_fastq_file() {
+    local fq="$1"
+    local threads="$2"
+    local level="$3"
+    if command -v pigz >/dev/null 2>&1; then
+        pigz -f -p "$threads" "-$level" "$fq"
+    else
+        gzip -f "-$level" "$fq"
+    fi
 }
 
 # Short options
@@ -143,8 +160,11 @@ while [[ $# -gt 0 ]]; do
         --cutadapt) cutadapt=$2; shift 2 ;;
         # Preprocessing Advanced options
         --cores) cores=$2; shift 2 ;;
+        --preprocess_batch_size) preprocess_batch_size=$2; shift 2 ;;
         --base_quality) base_quality=$2; shift 2 ;;
         --compression_level) compression_level=$2; shift 2 ;;
+        --gzip_output) gzip_output=$2; shift 2 ;;
+        --gzip_after_preprocess) gzip_after_preprocess=$2; shift 2 ;;
         --linker1) linker1=$2; shift 2 ;;
         --linker2) linker2=$2; shift 2 ;;
         --mm_rate) mm_rate=$2; shift 2 ;;
@@ -231,23 +251,45 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
 
     # Cutadapt and extract UMI and barcode
+    gzip_after_enabled=false
+    if [[ "${gzip_after_preprocess,,}" =~ ^(true|yes|1)$ ]]; then
+        gzip_after_enabled=true
+    fi
+
+    if [[ "${gzip_output,,}" =~ ^(false|no|0)$ ]]; then
+        preprocess_bc_ext="fq"
+    else
+        preprocess_bc_ext="fq.gz"
+    fi
+    bc_ext="$preprocess_bc_ext"
+    if [ "$preprocess_bc_ext" = "fq" ] && $gzip_after_enabled; then
+        bc_ext="fq.gz"
+    fi
+
     run_pixi python "$PYTHON_DIR/preprocess.py" \
         -r1 "$r1" -r2 "$r2" \
         -o "$output_path" -s "$sample_name" \
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
         -l "$locus" -c "$cores" -q "$base_quality" \
+        -bs "$preprocess_batch_size" \
         -cl "$compression_level" -cut "$cutadapt" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
+        -go "$gzip_output" \
         -cb "false" &> "$output_path/${sample_name}_preprocess.log"
 
     tmp_path=$(tail -n 1 $output_path/${sample_name}_preprocess.log)
+
+    if [ "$preprocess_bc_ext" = "fq" ] && $gzip_after_enabled; then
+        compress_fastq_file "$tmp_path/${sample_name}_bc_match_R1.fq" "$cores" "$compression_level" || exit 1
+        compress_fastq_file "$tmp_path/${sample_name}_bc_match_R2.fq" "$cores" "$compression_level" || exit 1
+    fi
 
     results=$output_path/results/$nonlocus_sample_name/$locus
     mkdir -p "$results"
 
     run_pixi python "$PYTHON_DIR/amplicon.py" \
-        -bu "$tmp_path/${sample_name}_bc_match_R1.fq.gz" \
-        -dr "$tmp_path/${sample_name}_bc_match_R2.fq.gz" \
+        -bu "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
+        -dr "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
         -o "$results" -d true \
         --whitelist "$whitelist_path" \
         --sb-len "$sb_len" \

@@ -3,11 +3,17 @@ from fuzzysearch import find_near_matches
 import time
 import argparse
 from collections import namedtuple
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from itertools import zip_longest
 
 BARCODE_LEN = 8
 UMI_LEN = 10
 DEFAULT_LINKER_WINDOW = 2
+DEFAULT_BATCH_SIZE = 50000
 Match = namedtuple("Match", ["start", "end"])
+BatchResult = namedtuple("BatchResult", ["r1_records", "r2_records", "n_reads", "n_reads_passed", "exact_match_stats", "fuzzy_match_stats"])
+
+WORKER_CONTEXT = None
 
 
 def str_to_bool(value):
@@ -88,6 +94,19 @@ def iter_fastq_raw(handle):
         if len(seq) != len(qual):
             raise ValueError(f"Length mismatch (seq {len(seq)} vs qual {len(qual)}) at read {read_id}")
         yield read_id, seq, qual
+
+
+def iter_paired_fastq_batches(r1_handle, r2_handle, batch_size):
+    batch = []
+    for r1_record, r2_record in zip_longest(iter_fastq_raw(r1_handle), iter_fastq_raw(r2_handle)):
+        if r1_record is None or r2_record is None:
+            raise ValueError("R1 and R2 FASTQ files contain different numbers of records.")
+        batch.append((r1_record, r2_record))
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def get_search_window(seq_len, expected_start, pattern_len, window):
@@ -218,10 +237,9 @@ def qual_to_string(qual):
     return ''.join(chr(q + 33) for q in qual)
 
 
-def write_seqrecord_to_fastq(record_id, seq, qual, f):
-    """One-shot write of 4 FASTQ lines; quality is expected to be a string."""
+def format_seqrecord_fastq(record_id, seq, qual):
     qual_str = qual_to_string(qual)
-    f.write(f"@{record_id}\n{seq}\n+\n{qual_str}\n")
+    return f"@{record_id}\n{seq}\n+\n{qual_str}\n"
 
 
 class MatchConfig:
@@ -240,21 +258,92 @@ class BarcodeConfig:
         self.bc_max_dist = bc_max_dist
 
 
-def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level, correct_barcode):
+def init_worker(match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map):
+    global WORKER_CONTEXT
+    WORKER_CONTEXT = {
+        "match_config": match_config,
+        "linker1_mm": linker1_mm,
+        "linker2_mm": linker2_mm,
+        "correct_barcode": correct_barcode,
+        "barcodeA_correction_map": barcodeA_correction_map,
+        "barcodeB_correction_map": barcodeB_correction_map,
+    }
 
-    exact_match_stats = [0, 0, 0, 0]
-    fuzzy_match_stats = [0, 0, 0, 0]
+
+def process_read_batch(batch, context=None):
+    if context is None:
+        context = WORKER_CONTEXT
+    match_config = context["match_config"]
+    linker1_mm = context["linker1_mm"]
+    linker2_mm = context["linker2_mm"]
+    correct_barcode = context["correct_barcode"]
+    barcodeA_correction_map = context["barcodeA_correction_map"]
+    barcodeB_correction_map = context["barcodeB_correction_map"]
+
+    exact_match_stats = [0, 0, 0]
+    fuzzy_match_stats = [0, 0, 0]
+    n_reads = 0
+    n_reads_passed = 0
+    r1_records = []
+    r2_records = []
+
+    for (r1_id, r1_seq, r1_qual), (r2_id, r2_seq, r2_qual) in batch:
+        n_reads += 1
+        match_result = find_all_matches(r1_seq, match_config.linker1, match_config.linker2, linker1_mm, linker2_mm)
+        if (len(match_result.linker2_matches) == 1) and (len(match_result.linker1_matches) == 1):
+            linker2_start = match_result.linker2_matches[0].start
+            linker2_end = match_result.linker2_matches[0].end
+            linker1_end = match_result.linker1_matches[0].end
+            barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
+            if correct_barcode:
+                barcode = correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map)
+            if barcode is not None and len(barcode) == 16 and len(umi) == 10:
+                n_reads_passed += 1
+                r1_records.append(format_seqrecord_fastq(r1_id, barcode + umi, barcode_q + umi_q))
+                r2_records.append(format_seqrecord_fastq(r2_id, r2_seq, r2_qual))
+        for i in range(3):
+            if match_result.match_stats[i] == 0:
+                fuzzy_match_stats[i] += 1
+            elif match_result.match_stats[i] == 1:
+                exact_match_stats[i] += 1
+
+    return BatchResult(r1_records, r2_records, n_reads, n_reads_passed, exact_match_stats, fuzzy_match_stats)
+
+
+def add_batch_stats(result, exact_match_stats, fuzzy_match_stats):
+    for i in range(3):
+        exact_match_stats[i] += result.exact_match_stats[i]
+        fuzzy_match_stats[i] += result.fuzzy_match_stats[i]
+
+
+def write_batch_result(result, out_r1, out_r2):
+    out_r1.writelines(result.r1_records)
+    out_r2.writelines(result.r2_records)
+
+
+def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level, correct_barcode, cores=1, batch_size=DEFAULT_BATCH_SIZE, gzip_output=True):
+
+    exact_match_stats = [0, 0, 0]
+    fuzzy_match_stats = [0, 0, 0]
     n_reads = 0
     n_reads_passed = 0
     overall_start_time = time.time()
 
     linker1_mm = get_mm_dist(match_config.linker1, match_config.mm_rate)
     linker2_mm = get_mm_dist(match_config.linker2, match_config.mm_rate)
+    cores = max(1, int(cores))
+    batch_size = max(1, int(batch_size))
+    output_suffix = ".fq.gz" if gzip_output else ".fq"
 
     print("=" * 80)
     print(f"Processing {reads1} and {reads2}")
-    print(f"Output files: {output_dir}/{sample}_bc_match_R1.fq.gz and {output_dir}/{sample}_bc_match_R2.fq.gz")
-    print(f"Compression level: {compression_level}.")
+    print(f"Output files: {output_dir}/{sample}_bc_match_R1{output_suffix} and {output_dir}/{sample}_bc_match_R2{output_suffix}")
+    if gzip_output:
+        print(f"Compression level: {compression_level}.")
+    else:
+        print("Output compression: none. This uses more disk space but can speed up preprocessing.")
+    print(f"Barcode extraction cores: {cores}.")
+    print(f"Barcode extraction batch size: {batch_size}.")
 
     if correct_barcode:
         print("Buliding barcode correction maps...")
@@ -270,42 +359,70 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
         barcodeA_correction_map = {}
         barcodeB_correction_map = {}
 
-    out_r1 = gzip.open(f"{output_dir}/{sample}_bc_match_R1.fq.gz", "wt", compresslevel = compression_level)
-    out_r2 = gzip.open(f"{output_dir}/{sample}_bc_match_R2.fq.gz", "wt", compresslevel = compression_level)
+    worker_context = {
+        "match_config": match_config,
+        "linker1_mm": linker1_mm,
+        "linker2_mm": linker2_mm,
+        "correct_barcode": correct_barcode,
+        "barcodeA_correction_map": barcodeA_correction_map,
+        "barcodeB_correction_map": barcodeB_correction_map,
+    }
 
-    with open_fastq_file(reads1) as r1_handle, open_fastq_file(reads2) as r2_handle:
-        for (r1_id, r1_seq, r1_qual), (r2_id, r2_seq, r2_qual) in zip(iter_fastq_raw(r1_handle), iter_fastq_raw(r2_handle)):
-            n_reads += 1        
-            match_result = find_all_matches(r1_seq, match_config.linker1, match_config.linker2, linker1_mm, linker2_mm)
-            if (len(match_result.linker2_matches) == 1) and (len(match_result.linker1_matches) == 1):
-                linker2_start = match_result.linker2_matches[0].start
-                linker2_end = match_result.linker2_matches[0].end
-                linker1_end = match_result.linker1_matches[0].end
-                barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
-                if correct_barcode:
-                    barcode = correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map)
-                if barcode is None:
-                    continue
-                if len(barcode) != 16 or len(umi) != 10:
-                    continue
-                n_reads_passed += 1
-                # write matched R1: barcode(16bp)+UMI(10bp)
-                new_seq  = barcode + umi
-                new_qual = barcode_q + umi_q
-                write_seqrecord_to_fastq(r1_id, new_seq, new_qual, out_r1)
-                # write matched R2: pass-through
-                write_seqrecord_to_fastq(r2_id, r2_seq, r2_qual, out_r2)
-            for i in range(3):
-                if match_result.match_stats[i] == 0:
-                    fuzzy_match_stats[i] += 1
-                elif match_result.match_stats[i] == 1:
-                    exact_match_stats[i] += 1
+    open_output = gzip.open if gzip_output else open
+    open_kwargs = {"compresslevel": compression_level} if gzip_output else {}
 
-    out_r1.close()
-    out_r2.close()
+    with open_output(f"{output_dir}/{sample}_bc_match_R1{output_suffix}", "wt", **open_kwargs) as out_r1, \
+         open_output(f"{output_dir}/{sample}_bc_match_R2{output_suffix}", "wt", **open_kwargs) as out_r2, \
+         open_fastq_file(reads1) as r1_handle, \
+         open_fastq_file(reads2) as r2_handle:
+        batch_iter = iter_paired_fastq_batches(r1_handle, r2_handle, batch_size)
+        if cores == 1:
+            for batch in batch_iter:
+                result = process_read_batch(batch, worker_context)
+                write_batch_result(result, out_r1, out_r2)
+                add_batch_stats(result, exact_match_stats, fuzzy_match_stats)
+                n_reads += result.n_reads
+                n_reads_passed += result.n_reads_passed
+        else:
+            initargs = (match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map)
+            max_pending = max(cores * 2, 1)
+            with ProcessPoolExecutor(max_workers=cores, initializer=init_worker, initargs=initargs) as executor:
+                pending = {}
+                next_submit_idx = 0
+                next_write_idx = 0
+                buffered = {}
+                exhausted = False
+
+                while pending or not exhausted:
+                    while not exhausted and len(pending) < max_pending:
+                        try:
+                            batch = next(batch_iter)
+                        except StopIteration:
+                            exhausted = True
+                            break
+                        future = executor.submit(process_read_batch, batch)
+                        pending[future] = next_submit_idx
+                        next_submit_idx += 1
+
+                    if not pending:
+                        break
+
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        idx = pending.pop(future)
+                        buffered[idx] = future.result()
+
+                    while next_write_idx in buffered:
+                        result = buffered.pop(next_write_idx)
+                        write_batch_result(result, out_r1, out_r2)
+                        add_batch_stats(result, exact_match_stats, fuzzy_match_stats)
+                        n_reads += result.n_reads
+                        n_reads_passed += result.n_reads_passed
+                        next_write_idx += 1
 
     print(f"Processed {n_reads} reads, {n_reads_passed} reads passed.")
-    print(f"Percenatge passed: {n_reads_passed / n_reads * 100:.2f}%")
+    percent_passed = n_reads_passed / n_reads * 100 if n_reads else 0
+    print(f"Percenatge passed: {percent_passed:.2f}%")
     print(f"Exact match stats: all exact = {exact_match_stats[0]}, linker1 exact = {exact_match_stats[1]}, linker2 exact = {exact_match_stats[2]}")
     print(f"Fuzzy match stats: all fuzzy = {fuzzy_match_stats[0]}, linker1 fuzzy = {fuzzy_match_stats[1]}, linker2 fuzzy = {fuzzy_match_stats[2]}")
     print(f"Overall time: {time.time() - overall_start_time:.2f} seconds.")
@@ -327,9 +444,13 @@ if __name__ == '__main__':
     argparser.add_argument('-l1', '--linker1', type = str, default = "GTGGCCGATGTTTCGCATCGGCGTACGACT", help = 'Linker 1 sequence')
     argparser.add_argument('-l2', '--linker2', type = str, default = "ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help = 'Linker 2 sequence')
     argparser.add_argument('-m', '--mm_rate', type = float, default = 0.05, help = 'Mismatch rate for linker sequences')
-    argparser.add_argument('--compression_level', type = int, default = 6, help = 'Compression level for output fastq files')
+    argparser.add_argument('--compression_level', type = int, default = 6, help = 'Compression level for gzip output files')
     argparser.add_argument('--bc_max_dist', type = int, default = 1, help = 'Maximum distance for barcode correction')
     argparser.add_argument('--correct_barcode', type=str_to_bool, default=False, help='Whether to perform barcode correction')
+    argparser.add_argument('--sample', type = str, default = None, help = 'Sample name for output FASTQ files')
+    argparser.add_argument('-c', '--cores', type = int, default = 1, help = 'Number of worker processes for barcode extraction')
+    argparser.add_argument('--batch_size', type = int, default = DEFAULT_BATCH_SIZE, help = 'Number of read pairs per worker batch')
+    argparser.add_argument('--gzip_output', type=str_to_bool, default=True, help='Whether to gzip barcode FASTQ output. False uses more disk space but can be faster.')
 
     args = argparser.parse_args()
 
@@ -345,8 +466,11 @@ if __name__ == '__main__':
     compression_level = args.compression_level  # compression level for output fastq files
     bc_max_dist = args.bc_max_dist  # maximum distance for barcode correction
     correct_barcode = args.correct_barcode  # whether to perform barcode correction
+    sample = args.sample
+    if sample is None:
+        sample = reads1.rsplit("/", 1)[-1].replace("_R1.fq.gz", "").replace("_R1.fastq.gz", "").replace("_R1.fq", "").replace("_R1.fastq", "")
 
     match_config = MatchConfig(linker1, linker2, mm_rate)
     barcode = BarcodeConfig(barcodeA_whitelist, barcodeB_whitelist, bc_max_dist)
 
-    main(match_config, barcode, reads1, reads2, output_dir, compression_level, correct_barcode)
+    main(match_config, barcode, reads1, reads2, output_dir, sample, compression_level, correct_barcode, args.cores, args.batch_size, args.gzip_output)

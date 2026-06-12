@@ -52,7 +52,7 @@ def plot_scatter(x, y, output, config):
     plt.ylabel(config.ylabel, fontsize=14)
     plt.title(config.title, fontsize=20)
     plt.tight_layout()
-    plt.savefig(f'{output}/{config.title}_scatter.png', dpi=600)
+    plt.savefig(f'{output}/{config.title}_scatter.png', dpi=300)
 
 def plot_scatter_small(x, y, output, config, scope_x=40000, scope_y=40000):
     plt.figure(figsize=(3, 3))
@@ -81,7 +81,7 @@ def plot_scatter_small(x, y, output, config, scope_x=40000, scope_y=40000):
     plt.ylabel(config.ylabel, fontsize=10)
     plt.title(config.title, fontsize=10)
     plt.tight_layout()
-    plt.savefig(f'{output}/{config.title}_scatter_small.png', dpi=600)
+    plt.savefig(f'{output}/{config.title}_scatter_small.png', dpi=300)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Scatter plot')

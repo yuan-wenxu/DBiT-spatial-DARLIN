@@ -29,8 +29,16 @@ def plot_heatmap(file_path, whitelist_path, output):
         names=['x', 'y']
         )
 
+    heatmap_columns = [
+        column for column in ['reads', 'umi_count', 'gene_count']
+        if column in data.columns
+    ]
+    data_read = data[['x', 'y'] + heatmap_columns].copy()
+    for column in heatmap_columns:
+        data_read[column] = pd.to_numeric(data_read[column], errors='coerce').fillna(0)
+
     data_read = (
-        data
+        data_read
         .set_index(['x', 'y'])
         .reindex(full_index, fill_value=0)
         .reset_index()
@@ -45,7 +53,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_ylabel('')
         ax.set_title(f"Reads counts", fontsize = 14)
         plt.tight_layout()
-        plt.savefig(os.path.join(output, f"Reads_counts_heatmap.png"), dpi=600)
+        plt.savefig(os.path.join(output, f"Reads_counts_heatmap.png"), dpi=300)
     except:
         print("No reads data found in the file")
 
@@ -59,7 +67,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_ylabel('')
         ax.set_title(f"UMI counts", fontsize = 14)
         plt.tight_layout()
-        plt.savefig(os.path.join(output, f"UMI_counts_heatmap.png"), dpi=600)
+        plt.savefig(os.path.join(output, f"UMI_counts_heatmap.png"), dpi=300)
     except:
         print("No UMI data found in the file")
 
@@ -73,7 +81,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_ylabel('')
         ax.set_title(f"Gene counts", fontsize = 14)
         plt.tight_layout()
-        plt.savefig(os.path.join(output, f"Gene_counts_heatmap.png"), dpi=600)
+        plt.savefig(os.path.join(output, f"Gene_counts_heatmap.png"), dpi=300)
     except:
         print("No gene data found in the file")
 

@@ -9,11 +9,13 @@ import numpy as np
 
 def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
     mtx = mmread(file_path+ '/' + 'matrix.mtx')
-    barcodes = pd.read_csv(os.path.join(file_path, "barcodes.tsv"), header = None, sep = '\t')
-    features = pd.read_csv(os.path.join(file_path, "features.tsv"), header = None, sep = '\t')
+    barcodes = pd.read_csv(os.path.join(file_path, "barcodes.tsv"), header=None, sep='\t', dtype=str)
+    features = pd.read_csv(os.path.join(file_path, "features.tsv"), header=None, sep='\t', dtype=str)
     adata = sc.AnnData(X = mtx.T.tocsr())
-    adata.obs.index = barcodes.iloc[:, 0]
-    adata.var.index = features.iloc[:, 0]
+    adata.obs_names = barcodes.iloc[:, 0].astype(str).to_numpy()
+    adata.var_names = features.iloc[:, 0].astype(str).to_numpy()
+    adata.obs_names.name = "barcode"
+    adata.var_names.name = "gene"
     sc.pp.calculate_qc_metrics(adata, inplace=True)
 
     # Violin plot
@@ -27,8 +29,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
     axes[1].set_ylabel('Number of UMIs', fontsize = 14)
     axes[1].tick_params(axis='y', labelsize=14)
     plt.subplots_adjust(wspace=0.4)
-    plt.tight_layout
-    plt.savefig(f'{file_path}/violin.png', bbox_inches="tight", dpi=600)
+    plt.tight_layout()
+    plt.savefig(f'{file_path}/violin.png', bbox_inches="tight", dpi=300)
     plt.close()
 
     print(f'Before filtering: {adata.n_obs} spots, {adata.n_vars} genes')
@@ -43,8 +45,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
         plt.xlabel('Number of Genes', fontsize=14)
         plt.ylabel('Frequency', fontsize=14)
         plt.tick_params(axis='both', labelsize=14)
-        plt.tight_layout
-        plt.savefig(f'{file_path}/gene_counts_hist.png', bbox_inches="tight", dpi=600)
+        plt.tight_layout()
+        plt.savefig(f'{file_path}/gene_counts_hist.png', bbox_inches="tight", dpi=300)
         plt.close()
 
         plt.figure(figsize=(5, 4))
@@ -55,8 +57,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
         plt.xlabel('Number of UMIs', fontsize=14)
         plt.ylabel('Frequency', fontsize=14)
         plt.tick_params(axis='both', labelsize=14)
-        plt.tight_layout
-        plt.savefig(f'{file_path}/umi_counts_hist.png', bbox_inches="tight", dpi=600)
+        plt.tight_layout()
+        plt.savefig(f'{file_path}/umi_counts_hist.png', bbox_inches="tight", dpi=300)
         plt.close()
 
         spots_per_gene = np.array((adata.X > 0).sum(axis=0)).flatten()
@@ -68,8 +70,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
         plt.xlabel('Number of Spots', fontsize=14)
         plt.ylabel('Frequency', fontsize=14)
         plt.tick_params(axis='both', labelsize=14)
-        plt.tight_layout
-        plt.savefig(f'{file_path}/spots_per_gene_hist.png', bbox_inches="tight", dpi=600)
+        plt.tight_layout()
+        plt.savefig(f'{file_path}/spots_per_gene_hist.png', bbox_inches="tight", dpi=300)
         plt.close()
 
         spots_per_gene = np.array((adata.X > 0).sum(axis=0)).flatten()
@@ -82,8 +84,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
         plt.tick_params(axis='both', labelsize=14)
         plt.xlim(0, 20)
         plt.legend(loc='upper right')
-        plt.tight_layout
-        plt.savefig(f'{file_path}/spots_per_gene_hist_small.png', bbox_inches="tight", dpi=600)
+        plt.tight_layout()
+        plt.savefig(f'{file_path}/spots_per_gene_hist_small.png', bbox_inches="tight", dpi=300)
         plt.close()
 
         adata = adata[(adata.obs['total_counts'] >= umi_min) &
@@ -102,8 +104,8 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
         axes[1].set_ylabel('Number of UMIs', fontsize = 14)
         axes[1].tick_params(axis='y', labelsize=14)
         plt.subplots_adjust(wspace=0.4)
-        plt.tight_layout
-        plt.savefig(f'{file_path}/violin_filtered_.png', bbox_inches="tight", dpi=600)
+        plt.tight_layout()
+        plt.savefig(f'{file_path}/violin_filtered_.png', bbox_inches="tight", dpi=300)
         plt.close()
         
     return adata

@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from PIL import Image
 
 def legend(data, output_path, name):
@@ -40,12 +39,21 @@ def plot_frame(data, output_path, config):
         legend(data['gene_count'] / data['count'], output_path, 'Gene_per_cell_distribution')
 
     if 'leiden' in data.columns:
-        clusters = len(data['leiden'].unique())
-        cmap = plt.get_cmap('tab20', clusters)
-        colors = cmap(range(clusters))
         frame = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
                           int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
                           dtype=np.uint8)
+        if 'color' in data.columns:
+            cluster_colors = {
+                int(row['leiden']): np.array(mcolors.to_rgba(row['color']))
+                for _, row in data[['leiden', 'color']].drop_duplicates().iterrows()
+            }
+        else:
+            clusters = sorted(data['leiden'].astype(int).unique())
+            cmap = plt.get_cmap('tab20', len(clusters))
+            cluster_colors = {
+                cluster_id: np.array(cmap(i))
+                for i, cluster_id in enumerate(clusters)
+            }
 
     if 'umi_count' in data.columns:
         frame_umi = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
@@ -83,7 +91,8 @@ def plot_frame(data, output_path, config):
             frame_gene_per_cell[y_start: y_end, x_start: x_end, 0] = 255
             frame_gene_per_cell[y_start: y_end, x_start: x_end, 3] = int(row['gene_count']) / row['count']
         if 'leiden' in data.columns:
-            frame[y_start: y_end, x_start: x_end, :] = (colors[row['leiden']] * 255).astype(np.uint8)
+            cluster_id = int(row['leiden'])
+            frame[y_start: y_end, x_start: x_end, :] = (cluster_colors[cluster_id] * 255).astype(np.uint8)
 
     if 'leiden' in data.columns:
         img_umap = Image.fromarray(frame, mode = 'RGBA')
@@ -91,24 +100,6 @@ def plot_frame(data, output_path, config):
                                     int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
                                     resample = Image.NEAREST)
         img_umap.save(f'{output_path}/umap_filtered.png')
-
-        legend_elements = [
-            mpatches.Patch(
-                color=colors[i][:3],
-                label=f'Cluster {i}'
-            )
-            for i in range(clusters)
-        ]
-        fig, ax = plt.subplots(figsize=(2, clusters * 0.3))
-        ax.legend(
-            handles=legend_elements,
-            loc='center left',
-            frameon=False
-        )
-        ax.axis('off')
-
-        plt.savefig(f'{output_path}/umap_legend.png', bbox_inches='tight')
-        plt.close()
     if 'umi_count' in data.columns:
         nozero = frame_umi[:, :, 3][frame_umi[:, :, 3] > 0]
         medain = np.percentile(nozero, 95)

@@ -231,8 +231,8 @@ fi
 mkdir -p "$output_path"
 
 if [ -n "$scratch" ]; then
-    scratch_input="$scratch/input"
-    scratch_output="$scratch/output"
+    scratch_input="$scratch/amp/input"
+    scratch_output="$scratch/amp/output"
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"
@@ -312,5 +312,5 @@ done
 
 if [ -n "$scratch" ]; then
     cp -r "$scratch_output"/* "$orig_output_path"/
-    rm -rf "$scratch"
+    rm -rf "$scratch/amp"
 fi

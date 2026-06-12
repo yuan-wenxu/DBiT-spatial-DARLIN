@@ -188,10 +188,10 @@ fi
 
 if [ -n "$scratch" ]; then
     mkdir -p "$scratch/image"
-    mkdir -p "$scratch/result"
+    mkdir -p "$scratch/image/result"
     cp "$image_path" "$scratch/image/$image_name"
     run_image_path="$scratch/image/$image_name"
-    run_result_path="$scratch/result"
+    run_result_path="$scratch/image/result"
 else
     run_image_path="$image_path"
     run_result_path="$result_path"
@@ -220,7 +220,6 @@ run_pixi python "$PYTHON_DIR/cell_filter.py" \
   -c $cutoff
 
 if [ -n "$scratch" ]; then
-    cp -r "$scratch/result"/* "$result_path/"
+    cp -r "$scratch/image/result"/* "$result_path/"
     rm -rf "$scratch/image"
-    rm -rf "$scratch/result"
 fi

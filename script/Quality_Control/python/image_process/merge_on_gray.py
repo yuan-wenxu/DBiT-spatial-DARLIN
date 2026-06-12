@@ -83,6 +83,7 @@ def main() -> None:
         matches = list(Path(args.search_dir).rglob(pattern))
     else:
         matches = list(Path(args.search_dir).glob(pattern))
+    matches = [p for p in matches if not p.name.startswith("merged_")]
 
     if not matches:
         print(f"No {pattern} files found under {args.search_dir}")

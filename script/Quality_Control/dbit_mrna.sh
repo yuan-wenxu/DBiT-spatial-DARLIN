@@ -96,6 +96,7 @@ pixel_length=${pixel_length:-0.294}
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
+whitelist_path="$SCRIPT_DIR/../../docs/barcodes/barcodes.tsv"
 
 # Pixi environment options
 pixi_env=${pixi_env:-dbit}

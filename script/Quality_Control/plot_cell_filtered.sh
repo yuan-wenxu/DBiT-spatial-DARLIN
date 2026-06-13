@@ -15,7 +15,7 @@ Optional (at least one of the two groups below):
   -a, --amp_dir <path>              Path to amplicon results directory
   -w, --whitelist <path>            Path to barcode whitelist file (required only when -a/--amp_dir is provided)
   -g, --gray_path <path>            Path to gray image for merge (optional; default: gray.png next to cell_number_file)
-  --orientation <mode>          Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
+  --orientation <mode>              Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
   --swap_xy                         Swap x and y axes after applying orientation before merging (optional)
 
 Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
@@ -62,6 +62,7 @@ EOF
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
+whitelist_path="$SCRIPT_DIR/../../docs/barcodes/barcodes.tsv"
 pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 normalize_dir_path() {

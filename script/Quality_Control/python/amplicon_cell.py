@@ -21,10 +21,13 @@ def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config)
             merge_data.to_csv(darlin_path + '/' + d + '/' + 'cellfiltered.csv', index = False)
 
             umi_data = merge_data[['x', 'y', 'count', 'UR']]
-            umi_data = umi_data.groupby(['x', 'y']).agg({'count': 'first', 'UR': 'count'}).reset_index()
+            umi_data = umi_data.groupby(['x', 'y']).agg({'count': 'first', 'UR': 'nunique'}).reset_index()
             umi_data['umi_count'] = umi_data['UR']
             plot_scatter(umi_data['count'], umi_data['umi_count'], darlin_path + '/' + d, umi_config)
             plot_frame_filtered(umi_data, darlin_path + '/' + d, plot_config)
+
+            darlin_data = merge_data[['x', 'y', 'count', 'n_LR']]
+            plot_scatter(darlin_data['count'], darlin_data['n_LR'], darlin_path + '/' + d, ScatterConfig('Number of cells', 'Number of lineage barcodes', 'Lineage_barcode_distribution', False, True, False, False))
 
             print(d)
             print(f'Spots number: {len(umi_data)}')

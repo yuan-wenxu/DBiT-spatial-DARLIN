@@ -21,7 +21,7 @@ Image Processing Options:
   --pixel_length <float>      Length of each pixel in μm (default: 0.294)
   --put_text <bool>           Whether to put text on the image (True/False, yes/no, 1/0) (default: True)
   --font_size <num>           Font size of the text (default: 1)
-  --orientation <mode>    Grid origin orientation: normal, horizontal, vertical, rotate (default: normal)
+  --orientation <mode>        Grid origin orientation: normal, horizontal, vertical, rotate (default: normal)
   --swap_xy                   Swap x and y grid axes after applying orientation (optional)
   --scratch <path>            Path to scratch directory for intermediate files (optional)
 

@@ -54,30 +54,73 @@ def iter_fastq_paired(handle1, handle2):
         yield read_id1, seq1, qual1, read_id2, seq2, qual2
 
 
+def iter_fastq(handle):
+    """Yield FASTQ records from one already-open handle."""
+    while True:
+        id_line = handle.readline()
+        if not id_line:
+            break
+        seq_line = handle.readline()
+        plus_line = handle.readline()
+        qual_line = handle.readline()
+
+        if not (seq_line and plus_line and qual_line):
+            raise ValueError("Incomplete FASTQ record encountered.")
+        if not id_line.startswith("@") or not plus_line.startswith("+"):
+            raise ValueError("Invalid FASTQ structure (missing @ or + line).")
+
+        read_id = id_line[1:].strip()
+        seq = seq_line.strip()
+        qual = qual_line.strip()
+        if len(seq) != len(qual):
+            raise ValueError(f"Length mismatch (seq {len(seq)} vs qual {len(qual)}) at read {read_id}")
+
+        yield read_id, seq, qual
+
+
 def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len=16, ub_len=10):
     rows = []
     n_total = 0
     n_kept = 0
     sb_ub_len = sb_len + ub_len
 
-    with open_fastq_file(sb_ub_fq) as fq1, open_fastq_file(lineage_bc_fq) as fq2:
-        iterator = iter_fastq_paired(fq1, fq2)
-        for _read_id1, seq1, _qual1, _read_id2, seq2, _qual2 in tqdm(
-            iterator,
-            desc="Reading extracted FASTQs",
-            unit_scale=True,
-            unit=" reads",
-        ):
-            n_total += 1
-            if len(seq1) < sb_ub_len:
-                continue
-            sb = seq1[:sb_len]
-            ub = seq1[sb_len:sb_ub_len]
-            lb = seq2
-            rows.append((lb, sb, ub, len(lb)))
-            n_kept += 1
+    with open_fastq_file(sb_ub_fq) as fq1:
+        if lineage_bc_fq:
+            with open_fastq_file(lineage_bc_fq) as fq2:
+                iterator = iter_fastq_paired(fq1, fq2)
+                for _read_id1, seq1, _qual1, _read_id2, seq2, _qual2 in tqdm(
+                    iterator,
+                    desc="Reading extracted FASTQs",
+                    unit_scale=True,
+                    unit=" reads",
+                ):
+                    n_total += 1
+                    if len(seq1) < sb_ub_len:
+                        continue
+                    sb = seq1[:sb_len]
+                    ub = seq1[sb_len:sb_ub_len]
+                    lb = seq2
+                    rows.append((lb, sb, ub, len(lb)))
+                    n_kept += 1
+        else:
+            iterator = iter_fastq(fq1)
+            for _read_id, seq, _qual in tqdm(
+                iterator,
+                desc="Reading extracted SB/UB FASTQ",
+                unit_scale=True,
+                unit=" reads",
+            ):
+                n_total += 1
+                if len(seq) < sb_ub_len:
+                    continue
+                sb = seq[:sb_len]
+                ub = seq[sb_len:sb_ub_len]
+                rows.append((sb, ub))
+                n_kept += 1
 
     print(f"input_reads: {n_total:,}")
     print(f"reads_after_length_filter (barcode+UMI): {n_kept:,}")
     print("\n")
-    return pd.DataFrame(rows, columns=["LB", "SB", "UB", "LB_len"])
+    if lineage_bc_fq:
+        return pd.DataFrame(rows, columns=["LB", "SB", "UB", "LB_len"])
+    return pd.DataFrame(rows, columns=["SB", "UB"])

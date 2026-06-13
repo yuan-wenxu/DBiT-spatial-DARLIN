@@ -30,6 +30,7 @@ Preprocessing Options:
     --scratch <path>                  Path to scratch directory for intermediate files (optional)
 
 DARLIN Correction Options:
+  --darlin <bool>                    Whether lineage barcode sequences are available (default: True)
   --sb_len <num>                     Length of concatenated spot barcode (default: 16)
   --ub_len <num>                     Length of UMI barcode (default: 10)
   --umi_hd_threshold <num>           Hamming-distance threshold for UMI correction within each SR (default: 1)
@@ -76,6 +77,7 @@ mm_rate=${mm_rate:-0.05}
 scratch=${scratch:-}
 
 # DARLIN Correction Options
+darlin=${darlin:-True}
 sb_len=${sb_len:-16}
 ub_len=${ub_len:-10}
 umi_hd_threshold=${umi_hd_threshold:-1}
@@ -171,6 +173,7 @@ while [[ $# -gt 0 ]]; do
         --mm_rate) mm_rate=$2; shift 2 ;;
         --scratch) scratch=$2; shift 2 ;;
         # DARLIN Correction Options
+        --darlin) darlin=$2; shift 2 ;;
         --sb_len) sb_len=$2; shift 2 ;;
         --ub_len) ub_len=$2; shift 2 ;;
         --umi_hd_threshold) umi_hd_threshold=$2; shift 2 ;;
@@ -291,7 +294,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     run_pixi python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
-        -o "$results" -d true \
+        -o "$results" -d "$darlin" \
         --whitelist "$whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \

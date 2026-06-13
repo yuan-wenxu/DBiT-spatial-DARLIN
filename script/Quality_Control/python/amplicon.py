@@ -46,7 +46,6 @@ def parse_args():
         "-dr",
         "--darlin_reads",
         dest="lineage_bc_fq",
-        required=True,
         help="FASTQ(.gz) with DARLIN/lineage barcode sequences.",
     )
     parser.add_argument(
@@ -62,7 +61,7 @@ def parse_args():
         "--darlin",
         type=str_to_bool,
         default=True,
-        help="Whether DARLIN sequences are provided. This script requires True.",
+        help="Whether DARLIN/lineage barcode sequences are available.",
     )
     parser.add_argument(
         "-o",
@@ -120,8 +119,8 @@ def parse_args():
     )
     args = parser.parse_args()
 
-    if not args.darlin:
-        parser.error("amplicon.py requires -d/--darlin True because lineage barcode FASTQ is required.")
+    if args.darlin and not args.lineage_bc_fq:
+        parser.error("amplicon.py requires -dr/--darlin_reads when -d/--darlin is True.")
 
     args.output_path = Path(args.output_path)
     args.output_path.mkdir(parents=True, exist_ok=True)
@@ -161,50 +160,64 @@ def apply_sb_correction(df, whitelist):
 
 def process(args):
     plot_dir = setup_plot_dir(args)
+    use_lineage = bool(args.darlin)
 
     df_seq = read_extracted_fastqs(
         args.sb_ub_fq,
-        args.lineage_bc_fq,
+        args.lineage_bc_fq if use_lineage else None,
         sb_len=args.sb_len,
         ub_len=args.ub_len,
     )
 
-    plot_lineage_length_hist(df_seq["LB_len"], plot_dir / "lineage_bc_length.png", min_len=args.min_lb_len)
+    if use_lineage:
+        plot_lineage_length_hist(df_seq["LB_len"], plot_dir / "lineage_bc_length.png", min_len=args.min_lb_len)
+        df = df_seq.groupby(["LB", "SB", "UB", "LB_len"]).size().reset_index(name="reads")
+        summarize(df, "collapsed_raw_molecules")
+        df = df[df["LB_len"] >= args.min_lb_len].copy()
+        summarize_label = "after_length_and_initial_reads_filter"
+    else:
+        df = df_seq.groupby(["SB", "UB"]).size().reset_index(name="reads")
+        summarize(df, "collapsed_raw_molecules")
+        summarize_label = "after_initial_reads_filter"
 
-    df = df_seq.groupby(["LB", "SB", "UB", "LB_len"]).size().reset_index(name="reads")
-    summarize(df, "collapsed_raw_molecules")
-
-    df = df[df["LB_len"] >= args.min_lb_len].copy()
     plot_reads_cutoff_qc(df, args.initial_reads_cutoff, plot_dir / "reads_cutoff_qc.png")
     df = df[df["reads"] >= args.initial_reads_cutoff].copy()
     df.sort_values(by="reads", ascending=False, inplace=True)
-    summarize(df, "after_length_and_initial_reads_filter")
+    summarize(df, summarize_label)
 
     df = apply_sb_correction(df, args.whitelist)
     df = correct_umis(df, max_hd=args.umi_hd_threshold)
-    df = (
-        df.groupby(["LB", "SR", "UR"], as_index=False)
-        .agg(reads=("reads", "sum"))
-    )
-    df["LB_len"] = df["LB"].str.len()
+
+    if use_lineage:
+        df = (
+            df.groupby(["LB", "SR", "UR"], as_index=False)
+            .agg(reads=("reads", "sum"))
+        )
+        df["LB_len"] = df["LB"].str.len()
+    else:
+        df = df.groupby(["SR", "UR"], as_index=False).agg(reads=("reads", "sum"))
+
     df.sort_values(by="reads", ascending=False, inplace=True)
     summarize(df, "after_umi_correction")
 
-    df = correct_lineage_barcodes(
-        df,
-        error_rate=args.lb_error_rate,
-        min_hd=args.lb_min_hd,
-    )
-    df = df.groupby(["SR", "UR", "LR"], as_index=False).agg(reads=("reads", "sum"))
-    df.sort_values(by="reads", ascending=False, inplace=True)
-    summarize(df, "after_lineage_correction")
+    if use_lineage:
+        df = correct_lineage_barcodes(
+            df,
+            error_rate=args.lb_error_rate,
+            min_hd=args.lb_min_hd,
+        )
+        df = df.groupby(["SR", "UR", "LR"], as_index=False).agg(reads=("reads", "sum"))
+        df.sort_values(by="reads", ascending=False, inplace=True)
+        summarize(df, "after_lineage_correction")
 
-    df = add_reads_fraction(df, args.reads_fraction_mode)
-    plot_reads_fraction_qc(df, args.major_fraction_threshold_molecule, plot_dir / "reads_fraction_qc.png")
-    df_major = df[df["reads_fraction"] >= args.major_fraction_threshold_molecule].copy()
-    reads_removed_as_amplification_error = int(df["reads"].sum() - df_major["reads"].sum())
-    print(f"reads_removed_as_amplification_error: {reads_removed_as_amplification_error:,}")
-    summarize(df_major, "after_major_lr_filter")
+        df = add_reads_fraction(df, args.reads_fraction_mode)
+        plot_reads_fraction_qc(df, args.major_fraction_threshold_molecule, plot_dir / "reads_fraction_qc.png")
+        df_major = df[df["reads_fraction"] >= args.major_fraction_threshold_molecule].copy()
+        reads_removed_as_amplification_error = int(df["reads"].sum() - df_major["reads"].sum())
+        print(f"reads_removed_as_amplification_error: {reads_removed_as_amplification_error:,}")
+        summarize(df_major, "after_major_lr_filter")
+    else:
+        df_major = df
 
     sr_summary = df_major.groupby("SR").agg(n_reads=("reads", "sum"), n_UR=("UR", "nunique")).reset_index()
     sr_summary["k"] = sr_summary["n_reads"] / sr_summary["n_UR"]
@@ -212,11 +225,12 @@ def process(args):
 
     df_final = df_major.merge(sr_summary[["SR", "k"]], on="SR", how="left")
     df_final = df_final[(df_final["k"] >= args.slope_cutoff) & (df_final["reads"] >= args.final_reads_cutoff)].copy()
-    df_final["n_LR"] = df_final.groupby("SR")["LR"].transform("nunique")
     reads_removed_as_capture_oligo_carryover = int(df_major["reads"].sum() - df_final["reads"].sum())
     print(f"reads_removed_as_capture_oligo_carryover: {reads_removed_as_capture_oligo_carryover:,}")
     summarize(df_final, "after_low_quality_sr_filter")
-    plot_lr_per_sr(df_final, plot_dir / "lr_per_sr_hist.png")
+    if use_lineage:
+        df_final["n_LR"] = df_final.groupby("SR")["LR"].transform("nunique")
+        plot_lr_per_sr(df_final, plot_dir / "lr_per_sr_hist.png")
 
     out_final = args.output_path / "final.csv"
     df_final.to_csv(out_final, index=False)

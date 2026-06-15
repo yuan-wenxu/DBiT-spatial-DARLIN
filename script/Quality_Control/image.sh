@@ -44,7 +44,7 @@ StarDist Detection Options:
   --nms_thresh <num>           NMS IoU threshold (default: 0.6)
 
 Pixi environment options:
-  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: stardist)
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: image)
   --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
@@ -97,7 +97,7 @@ nms_thresh=${nms_thresh:-0.6}
 cutoff=${cutoff:-100}
 
 # Pixi environment options
-pixi_env=${pixi_env:-stardist}
+pixi_env=${pixi_env:-image}
 pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 run_pixi() {

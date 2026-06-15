@@ -35,7 +35,7 @@ Orientation Notes:
   vertical + --swap_xy              Rotate the coordinate system 90 degrees clockwise
 
 Pixi environment options:
-  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: default)
   --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
@@ -102,7 +102,7 @@ interval=${interval:-20}
 pixel_length=${pixel_length:-0.294}
 orientation=${orientation:-normal}
 swap_xy=${swap_xy:-False}
-pixi_env=${pixi_env:-dbit}
+pixi_env=${pixi_env:-default}
 
 # Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.
 short_args=()

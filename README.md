@@ -41,8 +41,8 @@ Quality control entry points:
 
 This project uses `pixi` as the environment manager.
 
-- `dbit` environment: used by `dbit_mrna.sh`, `dbit_amplicon.sh`, and `plot_cell_filtered.sh`
-- `stardist` environment: used by `image.sh`
+- `default` environment: used by `dbit_mrna.sh`, `dbit_amplicon.sh`, and `plot_cell_filtered.sh`
+- `image` environment: used by `image.sh`
 
 Environment files are included in the repository:
 
@@ -67,13 +67,13 @@ By default, each script looks for `pixi.toml` at the repository root. If command
 Validated with:
 
 - `pixi 0.70.1`
-- `pixi run -e dbit ...`
-- `pixi run -e stardist ...`
+- `pixi run -e default ...`
+- `pixi run -e image ...`
 
 Key tools and packages verified in the pixi environments:
 
-- `dbit`: `STAR`, `samtools`, `seqtk`, `fastp`, `cutadapt`, `scanpy`, `umi_tools`
-- `stardist`: `tensorflow`, `stardist`, `opencv-python-headless`, `imagecodecs`
+- `default`: `STAR`, `samtools`, `seqtk`, `fastp`, `cutadapt`, `scanpy`, `umi_tools`
+- `image`: `tensorflow`, `stardist`, `opencv-python-headless`, `imagecodecs`
 
 ## 2. Quick Start
 
@@ -141,7 +141,7 @@ Common options:
 - `-w, --whitelist <path>`: barcode whitelist file
 - `--genome_dir <path>`: STAR genome index
 - `--scratch <path>`: optional scratch directory for intermediate files
-- `--pixi_env <name>`: pixi environment name; default `dbit`
+- `--pixi_env <name>`: pixi environment name; default `default`
 - `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
 
 Selected QC/spatial options:
@@ -164,7 +164,7 @@ Common options:
 - `--orientation <mode>`: `normal`, `horizontal`, `vertical`, or `rotate`; default `normal`
 - `--swap_xy`: swap x/y axes after applying `--orientation`
 - `--scratch <path>`: optional scratch directory for intermediate image files
-- `--pixi_env <name>`: pixi environment name; default `stardist`
+- `--pixi_env <name>`: pixi environment name; default `image`
 - `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
 
 Selected image/segmentation options:
@@ -188,7 +188,7 @@ Common options:
 - `-w, --whitelist <path>`: barcode whitelist file
 - `-c, --cutadapt <bool>`: whether to perform cutadapt trimming; default `False`
 - `--scratch <path>`: optional scratch directory for intermediate files
-- `--pixi_env <name>`: pixi environment name; default `dbit`
+- `--pixi_env <name>`: pixi environment name; default `default`
 - `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
 
 Selected correction options:
@@ -214,7 +214,7 @@ Common options:
 - `-g, --gray_path <path>`: grayscale image for merge; defaults to `gray.png` next to `cell_number_file`
 - `--orientation <mode>`: transform filtered images before merging; default `normal`
 - `--swap_xy`: swap x/y axes after applying `--orientation`
-- `--pixi_env <name>`: pixi environment name; default `dbit`
+- `--pixi_env <name>`: pixi environment name; default `default`
 - `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
 
 Spatial options passed to both mRNA and amplicon cell-filtered plotting:

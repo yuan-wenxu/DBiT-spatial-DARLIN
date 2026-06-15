@@ -44,7 +44,7 @@ DARLIN Correction Options:
   --slope_cutoff <num>               Minimum reads/UMIs per SR (default: 10)
 
 Pixi environment options:
-  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: dbit)
+  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: default)
   --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
 
 Other Options:
@@ -95,7 +95,7 @@ PYTHON_DIR="$SCRIPT_DIR/python"
 whitelist_path="$SCRIPT_DIR/../../docs/barcodes/barcodes.tsv"
 
 # Pixi environment options
-pixi_env=${pixi_env:-dbit}
+pixi_env=${pixi_env:-default}
 pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
 normalize_dir_path() {

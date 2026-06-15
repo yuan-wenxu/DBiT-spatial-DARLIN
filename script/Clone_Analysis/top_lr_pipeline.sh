@@ -22,6 +22,8 @@ Other Options:
       --min-sequence-length <int>   Minimum sequence length for allele analysis
       --top-n <int>                 Number of top LR plots per label (default: 10)
       --rotate <0|90|180|270>       Counterclockwise plot rotation (default: 0)
+      --pixi_env <name>             Name of the Pixi environment to use (optional; default: default)
+      --pixi_env_dir <path>         Directory containing pixi.toml (optional; default: repository root)
   -h, --help                        Show this help message and exit
 
 EOF
@@ -33,10 +35,13 @@ output_dir=""
 min_sequence_length=20
 top_n=10
 rotate=0
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+pixi_env=${pixi_env:-default}
+pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 
-cellcount_filter="./python/cellcount_filter.py"
-allele_bank_filter="./python/allele_bank_filter.py"
-top_lr_plot="./python/top_lr_plot.py"
+cellcount_filter="$SCRIPT_DIR/python/cellcount_filter.py"
+allele_bank_filter="$SCRIPT_DIR/python/allele_bank_filter.py"
+top_lr_plot="$SCRIPT_DIR/python/top_lr_plot.py"
 
 
 short_args=()
@@ -73,6 +78,8 @@ while [[ $# -gt 0 ]]; do
         --min-sequence-length) min_sequence_length=$2; shift 2 ;;
         --top-n) top_n=$2; shift 2 ;;
         --rotate) rotate=$2; shift 2 ;;
+        --pixi_env) pixi_env=$2; shift 2 ;;
+        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
         --labels)
             labels=()
             shift
@@ -109,7 +116,10 @@ run_step() {
 
     echo
     echo "=== $title ==="
-    python "$@"
+    (
+        cd "$pixi_env_dir" || exit 1
+        pixi run -e "$pixi_env" python "$@"
+    )
 }
 
 

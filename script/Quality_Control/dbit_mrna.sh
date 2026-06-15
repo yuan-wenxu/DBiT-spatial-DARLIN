@@ -1,4 +1,12 @@
 #!/bin/bash
+#SBATCH -J dbit_mrna_qc
+#SBATCH -c 10
+#SBATCH -p amd-ep2,intel-sc3
+#SBATCH --mem=64G
+#SBATCH --time=24:00:00
+#SBATCH -o %x_%j.out
+#SBATCH -e %x_%j.err
+#SBATCH --requeue
 
 # Show help
 show_help() {

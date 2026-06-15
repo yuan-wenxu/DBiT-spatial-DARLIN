@@ -1,4 +1,12 @@
 #!/bin/bash
+#SBATCH -J dbit_plot_qc
+#SBATCH -c 4
+#SBATCH -p amd-ep2,intel-sc3
+#SBATCH --mem=32G
+#SBATCH --time=04:00:00
+#SBATCH -o %x_%j.out
+#SBATCH -e %x_%j.err
+#SBATCH --requeue
 
 # Show help message
 show_help() {

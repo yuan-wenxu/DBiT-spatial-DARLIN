@@ -21,7 +21,7 @@ Other Options:
       --output-dir <dir>            Output directory (default: input_dir)
       --min-sequence-length <int>   Minimum sequence length for allele analysis
       --top-n <int>                 Number of top LR plots per label (default: 10)
-      --rotate <0|90|180|270>       Counterclockwise plot rotation (default: 0)
+      --rotate <0|90|180|270>       Clockwise plot rotation (default: 0)
       --pixi_env <name>             Name of the Pixi environment to use (optional; default: default)
       --pixi_env_dir <path>         Directory containing pixi.toml (optional; default: repository root)
   -h, --help                        Show this help message and exit

@@ -2,116 +2,125 @@
 
 Version 0.2.0
 
-This version includes quality control for DBiT spatial DARLIN data from three modalities: transcriptome, image, and amplicon.
+This repository contains scripts for DBiT spatial DARLIN data processing and quality control across three data types:
 
-Expected input layout:
+- transcriptome FASTQ data
+- registered tissue images
+- DARLIN amplicon FASTQ data
+
+It also includes a clone-analysis workflow that filters DARLIN clone calls and plots top LR clones on an mRNA Leiden-cluster background.
+
+Detailed references:
+
+- [Technical documentation](docs/TECHNICAL_DOCUMENTATION.md)
+- [Orientation handling](docs/ORIENTATION.md)
+
+## 1. Project Layout
+
+Recommended input layout:
 
 ```text
 sample_name/
 ├── amplicon/
-|   └── fastq/
-|       ├── *_CA_R1.fq.gz
-|       ├── *_CA_R2.fq.gz
-|       ├── *_RA_R1.fq.gz
-|       ├── *_RA_R2.fq.gz
-|       ├── *_TA_R1.fq.gz
-|       └── *_TA_R2.fq.gz
+│   └── fastq/
+│       ├── *_CA_R1.fq.gz
+│       ├── *_CA_R2.fq.gz
+│       ├── *_RA_R1.fq.gz
+│       ├── *_RA_R2.fq.gz
+│       ├── *_TA_R1.fq.gz
+│       └── *_TA_R2.fq.gz
 ├── image/
-|   └── your_image.tif
+│   ├── align.png
+│   └── gray.png
 └── transcriptome/
     └── fastq/
         ├── *_R1.fq.gz
         └── *_R2.fq.gz
 ```
 
-Script directory: `script`
+Main script directories:
 
-Detailed technical documentation: [TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md)
+```text
+script/
+├── Quality_Control/
+│   ├── dbit_mrna.sh
+│   ├── image.sh
+│   ├── dbit_amplicon.sh
+│   ├── plot_cell_filtered.sh
+│   └── python/
+└── Clone_Analysis/
+    ├── top_lr_pipeline.sh
+    └── python/
+```
 
-Orientation handling documentation: [ORIENTATION.md](docs/ORIENTATION.md)
+## 2. Environment
 
-Quality control entry points:
-
-1. `script/Quality_Control/dbit_mrna.sh`: process transcriptome data.
-2. `script/Quality_Control/image.sh`: split the registered image, run StarDist segmentation, and predict cell numbers.
-3. `script/Quality_Control/dbit_amplicon.sh`: process amplicon data.
-4. `script/Quality_Control/plot_cell_filtered.sh`: generate cell-filtered plots and optionally merge them onto `gray.png`.
-
-Clone analysis entry point:
-
-- `script/Clone_Analysis/top_lr_pipeline.sh`: filter DARLIN clone calls and plot top LR spatial overlays.
-
-## 1. Environment
-
-This project uses `pixi` as the environment manager.
-
-- `default` environment: used by `dbit_mrna.sh`, `dbit_amplicon.sh`, and `plot_cell_filtered.sh`
-- `image` environment: used by `image.sh`
-
-Environment files are included in the repository:
-
-- `pixi.toml`
-- `pixi.lock`
-
-Setup:
+This project uses `pixi`.
 
 ```bash
 cd /path/to/DBiT-spatial-DARLIN
 pixi install
 ```
 
-The shell scripts call `pixi run -e ...` internally, so environments do not need to be activated manually.
+The shell entry points call `pixi run -e ...` internally. You do not need to activate the environment manually.
 
-By default, each script looks for `pixi.toml` at the repository root. If commands are launched from another location or with a custom environment, use:
+Pixi environments:
+
+- `default`: transcriptome, amplicon, filtered plotting, and clone analysis
+- `image`: image splitting and StarDist segmentation
+
+Useful environment options accepted by the shell scripts:
 
 ```bash
---pixi_env <name> --pixi_env_dir /path/to/DBiT-spatial-DARLIN
+--pixi_env <name>
+--pixi_env_dir /path/to/DBiT-spatial-DARLIN
 ```
 
-Validated with:
+## 3. Recommended Workflow
 
-- `pixi 0.70.1`
-- `pixi run -e default ...`
-- `pixi run -e image ...`
-
-Key tools and packages verified in the pixi environments:
-
-- `default`: `STAR`, `samtools`, `seqtk`, `fastp`, `cutadapt`, `scanpy`, `umi_tools`
-- `image`: `tensorflow`, `stardist`, `opencv-python-headless`, `imagecodecs`
-
-## 2. Quick Start
-
-Use `-h` or `--help` to inspect the current interface for each script:
+Run commands from the repository root:
 
 ```bash
-bash script/Quality_Control/dbit_mrna.sh -h
-bash script/Quality_Control/image.sh -h
-bash script/Quality_Control/dbit_amplicon.sh -h
-bash script/Quality_Control/plot_cell_filtered.sh -h
+cd /path/to/DBiT-spatial-DARLIN
 ```
 
-Typical commands:
+### Step 1: Transcriptome QC
 
 ```bash
-# Transcriptome: output defaults to the parent directory of the fastq folder.
 bash script/Quality_Control/dbit_mrna.sh \
     -f /path/to/sample_name/transcriptome/fastq \
     -w docs/barcodes/barcodes.tsv \
     --genome_dir /path/to/STAR_genome_index
+```
 
-# Image segmentation: result path is optional and defaults to the image folder.
+This processes transcriptome FASTQs, runs STAR/Solo, and generates mRNA QC outputs.
+
+### Step 2: Image Segmentation
+
+Register the transcriptome plot to the tissue image first, crop the corresponding region, and save it as `align.png`.
+
+```bash
 bash script/Quality_Control/image.sh \
     -i /path/to/sample_name/image/align.png \
-    -r /path/to/sample_name/image \
     --orientation normal
+```
 
-# Amplicon: output defaults to the parent directory of the fastq folder.
+This splits the image by the DBiT grid, runs StarDist, and writes `filtered_results.csv`.
+
+### Step 3: Amplicon QC
+
+```bash
 bash script/Quality_Control/dbit_amplicon.sh \
     -f /path/to/sample_name/amplicon/fastq \
     -w docs/barcodes/barcodes.tsv \
     -c True
+```
 
-# Cell-filtered plots: whitelist is required only when amplicon results are provided.
+This processes DARLIN amplicon FASTQs and writes per-label clone-call tables.
+
+### Step 4: Cell-Filtered Plots
+
+```bash
 bash script/Quality_Control/plot_cell_filtered.sh \
     -c /path/to/sample_name/image/filtered_results.csv \
     -m /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull \
@@ -121,77 +130,88 @@ bash script/Quality_Control/plot_cell_filtered.sh \
     --orientation normal
 ```
 
-Orientation options used by `image.sh` and `plot_cell_filtered.sh` are `normal`, `horizontal`, `vertical`, and `rotate`. Use `--swap_xy` together with `--orientation` for 90-degree rotation. See [ORIENTATION.md](docs/ORIENTATION.md) for examples and schematic images.
+This generates cell-filtered transcriptome and/or amplicon plots. If `gray.png` is provided or found next to `filtered_results.csv`, merged overlay images are also produced.
 
-Clone analysis after QC:
+### Step 5: Clone Analysis
 
 ```bash
 bash script/Clone_Analysis/top_lr_pipeline.sh \
     -i /path/to/sample_name/amplicon/results/sample_name \
     -b /path/to/allele_bank \
-    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/data_cellfiltered.csv \
-    --labels CA RA TA \
-    --top-n 10 \
-    --rotate 0
+    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull/raw/data_cellfiltered.csv
 ```
 
-### Execution Order
+This workflow:
 
-1. Run `script/Quality_Control/dbit_mrna.sh` to process transcriptome FASTQ files. This generates transcriptome QC outputs, including plots that can be used for image registration.
-2. Register the transcriptome plot to the ssDNA staining image, crop the corresponding region, save it as `align.png`, and generate a grayscale image named `gray.png`.
-3. Run `script/Quality_Control/image.sh` on `align.png` to split the image, run StarDist segmentation, and generate `filtered_results.csv`.
-4. Run `script/Quality_Control/dbit_amplicon.sh` to process amplicon FASTQ files. This can be completed before the final integration step.
-5. Run `script/Quality_Control/plot_cell_filtered.sh` with `filtered_results.csv` to generate cell-filtered transcriptome and/or amplicon plots. If `gray.png` is available, merged images are generated automatically.
-6. Optional: run `script/Clone_Analysis/top_lr_pipeline.sh` after amplicon QC to split clone calls by predicted cell count, filter out allele-bank clones, and plot the largest LR clones on the mRNA cluster background.
+1. splits clone calls by whether `n_LR > predicted cell count`;
+2. filters LR sequences against label-specific allele-bank files;
+3. plots the top LR clones on the mRNA Leiden cluster background.
 
-## 3. Script Interfaces
+## 4. Orientation
+
+`image.sh` and `plot_cell_filtered.sh` share the same orientation interface:
+
+```bash
+--orientation normal
+--orientation horizontal
+--orientation vertical
+--orientation rotate
+--swap_xy
+```
+
+Common meanings:
+
+- `normal`: no coordinate transform
+- `horizontal`: left-right flip
+- `vertical`: top-bottom flip
+- `rotate`: 180-degree rotation
+- `horizontal --swap_xy`: 90 degrees counterclockwise
+- `vertical --swap_xy`: 90 degrees clockwise
+
+Use the same orientation settings for image splitting and filtered-plot merging whenever possible. See [ORIENTATION.md](docs/ORIENTATION.md) for schematic examples.
+
+`top_lr_plot.py` has its own `--rotate <0|90|180|270>` option because the clone-analysis plot orientation is handled separately from image merging.
+
+## 5. Script Interfaces
+
+Use `-h` or `--help` for the full current interface:
+
+```bash
+bash script/Quality_Control/dbit_mrna.sh -h
+bash script/Quality_Control/image.sh -h
+bash script/Quality_Control/dbit_amplicon.sh -h
+bash script/Quality_Control/plot_cell_filtered.sh -h
+bash script/Clone_Analysis/top_lr_pipeline.sh -h
+```
 
 ### `dbit_mrna.sh`
 
 Required:
 
-- `-f, --fastq_path <dir>`: directory containing `*_R1.fq.gz` and `*_R2.fq.gz`
+- `-f, --fastq_path <dir>`: directory containing transcriptome `*_R1.fq.gz` and `*_R2.fq.gz`
 
 Common options:
 
-- `-o, --output_path <dir>`: output directory; defaults to the parent directory of `fastq_path`
-- `-w, --whitelist <path>`: barcode whitelist file
+- `-o, --output_path <dir>`: output directory; default is the parent directory of `fastq_path`
+- `-w, --whitelist <path>`: barcode whitelist
 - `--genome_dir <path>`: STAR genome index
-- `--scratch <path>`: optional scratch directory for intermediate files
-- `--pixi_env <name>`: pixi environment name; default `default`
-- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
-
-Selected QC/spatial options:
-
 - `--umi_min <num>`: minimum UMI count per spot; default `900`
 - `--gene_min <num>`: minimum gene count per spot; default `300`
-- `--min_cells <num>`: minimum cells per gene; default `3`
 - `--x_spots_number <num>` and `--y_spots_number <num>`: grid dimensions; default `50` and `50`
-- `--length_spot <num>`, `--interval <num>`, `--pixel_length <float>`: spot geometry parameters
 
 ### `image.sh`
 
 Required:
 
-- `-i, --image_path <path>`: input image, usually `align.png`
+- `-i, --image_path <path>`: registered input image, usually `align.png`
 
 Common options:
 
-- `-r, --result_path <path>`: output directory; defaults to the image file directory
-- `--orientation <mode>`: `normal`, `horizontal`, `vertical`, or `rotate`; default `normal`
-- `--swap_xy`: swap x/y axes after applying `--orientation`
-- `--scratch <path>`: optional scratch directory for intermediate image files
-- `--pixi_env <name>`: pixi environment name; default `image`
-- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
-
-Selected image/segmentation options:
-
-- `--x_spots_number <num>` and `--y_spots_number <num>`: grid dimensions; default `50` and `50`
-- `--length_spot <num>`, `--interval <num>`, `--pixel_length <float>`: spot geometry parameters
-- `--put_text <bool>` and `--font_size <num>`: label display options for split preview
-- `--top_value <num>` and `--number_of_top_values <num>`: image quality-control thresholds
-- `--model <name>`, `--prob_thresh <num>`, `--nms_thresh <num>`: StarDist model and detection thresholds
-- `--cutoff <num>`: cell-count cutoff used by `cell_filter.py`; default `100`
+- `-r, --result_path <path>`: output directory; default is the input image directory
+- `--orientation <mode>` and `--swap_xy`: grid orientation controls
+- `--model <name>`: StarDist model; default `2D_versatile_fluo`
+- `--prob_thresh <num>` and `--nms_thresh <num>`: StarDist detection thresholds
+- `--cutoff <num>`: cell-count cutoff used by downstream filtering; default `100`
 
 ### `dbit_amplicon.sh`
 
@@ -201,84 +221,65 @@ Required:
 
 Common options:
 
-- `-o, --output_path <dir>`: output directory; defaults to the parent directory of `fastq_path`
-- `-w, --whitelist <path>`: barcode whitelist file
-- `-c, --cutadapt <bool>`: whether to perform cutadapt trimming; default `False`
-- `--scratch <path>`: optional scratch directory for intermediate files
-- `--pixi_env <name>`: pixi environment name; default `default`
-- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
-
-Selected correction options:
-
-- `--umi_hd_threshold <num>`: UMI clustering edit-distance threshold; default `1`
-- `--lb_error_rate <float>`: per-base error rate for LB threshold; default `0.02`
+- `-o, --output_path <dir>`: output directory; default is the parent directory of `fastq_path`
+- `-w, --whitelist <path>`: barcode whitelist
+- `-c, --cutadapt <bool>`: whether to run cutadapt trimming
+- `--umi_hd_threshold <num>`: UMI correction threshold; default `1`
+- `--initial_reads_cutoff <num>`: minimum reads per raw LB/SB/UB molecule; default `100`
 - `--major_fraction_threshold <float>`: major LR fraction threshold; default `0.8`
-- `--reads_cutoff <num>`: minimum supported reads; default `10`
-- `--slope_cutoff <num>`: minimum reads/UMIs slope per spot; default `10`
+- `--reads_cutoff <num>`: minimum reads per final row; default `10`
 
 ### `plot_cell_filtered.sh`
 
 Required:
 
 - `-c, --cell_number_file <path>`: cell number file, usually `filtered_results.csv`
-- At least one of `-m/--mrna_dir` or `-a/--amp_dir`
+- at least one of `-m/--mrna_dir` or `-a/--amp_dir`
 
 Common options:
 
-- `-m, --mrna_dir <path>`: mRNA results directory
-- `-a, --amp_dir <path>`: amplicon results directory
-- `-w, --whitelist <path>`: barcode whitelist file; required when `--amp_dir` is provided
-- `-g, --gray_path <path>`: grayscale image for merge; defaults to `gray.png` next to `cell_number_file`
-- `--orientation <mode>`: transform filtered images before merging; default `normal`
-- `--swap_xy`: swap x/y axes after applying `--orientation`
-- `--pixi_env <name>`: pixi environment name; default `default`
-- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
+- `-m, --mrna_dir <path>`: mRNA result directory
+- `-a, --amp_dir <path>`: amplicon result directory
+- `-w, --whitelist <path>`: required when `--amp_dir` is provided
+- `-g, --gray_path <path>`: grayscale image for merge; default is `gray.png` next to `filtered_results.csv`
+- `--orientation <mode>` and `--swap_xy`: transform filtered images before merging
 
-Spatial options passed to both mRNA and amplicon cell-filtered plotting:
-
-- `--x_spots_number <num>` and `--y_spots_number <num>`: grid dimensions; default `50` and `50`
-- `--length_spot <num>`, `--interval <num>`, `--pixel_length <float>`: spot geometry parameters
-
-### Clone analysis
-
-Recommended entry point:
-
-- `script/Clone_Analysis/top_lr_pipeline.sh`
-
-The pipeline runs three scripts in order:
-
-1. `cellcount_filter.py`: reads each label's `cellfiltered.csv`, compares the number of unique LR clones in each SR spot with the predicted cell count, and writes `n_LR_gt_count` and `n_LR_le_count` tables.
-2. `allele_bank_filter.py`: filters clone calls against the label-specific allele bank files (`allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`).
-3. `top_lr_plot.py`: ranks LR clones by the number of SR spots containing them and plots the top clones over the mRNA Leiden cluster background.
+### `top_lr_pipeline.sh`
 
 Required:
 
-- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `cellfiltered.csv` files.
-- `-b, --bank-dir <dir>`: directory containing allele-bank files.
-- `--cluster-csv <path>`: mRNA cluster CSV with `x`, `y`, `leiden`, and `color` columns. This is used as the spatial background for clone plots.
+- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `cellfiltered.csv`
+- `-b, --bank-dir <dir>`: directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
+- `--cluster-csv <path>`: mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
 
 Common options:
 
 - `--labels <label...>`: labels to process; default `CA RA TA`
-- `--output-dir <dir>`: output directory; defaults to `input-dir`
+- `--output-dir <dir>`: output directory; default is `input-dir`
 - `--min-sequence-length <num>`: minimum sequence length passed to DARLIN allele analysis; default `20`
 - `--top-n <num>`: number of top LR plots per label; default `10`
 - `--rotate <0|90|180|270>`: rotate top LR plots; default `0`
-- `--pixi_env <name>`: pixi environment name; default `default`
-- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
 
-Example:
+## 6. Outputs
 
-```bash
-bash script/Clone_Analysis/top_lr_pipeline.sh \
-    -i /path/to/sample_name/amplicon/results/sample_name \
-    -b /path/to/allele_bank \
-    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/data_cellfiltered.csv \
-    --labels CA RA TA \
-    --top-n 10
+Typical output layout:
+
+```text
+sample_name/
+├── transcriptome/
+│   └── results/
+├── image/
+│   ├── filtered_results.csv
+│   └── gray.png
+└── amplicon/
+    └── results/
+        └── sample_name/
+            ├── CA/
+            ├── RA/
+            └── TA/
 ```
 
-Important outputs:
+Clone-analysis outputs are written under the selected `--output-dir`:
 
 ```text
 <output_dir>/
@@ -293,30 +294,3 @@ Important outputs:
 ├── RA/
 └── TA/
 ```
-
-`top_lr_plot.py` can also be run directly when the intermediate filtered files already exist. It supports `--cluster-alpha` to make the Leiden background more transparent; the same alpha is used for the cluster legend.
-
-## 4. Output Directory Structure
-
-Main output locations:
-
-```text
-sample_name/
-├── amplicon/
-|   └── results/
-├── image/
-|   ├── filtered_results.csv
-|   └── gray.png
-├── transcriptome/
-|   └── results/
-└── clone-analysis outputs, usually under amplicon/results/sample_name/
-    ├── CA/
-    ├── RA/
-    └── TA/
-```
-
-Key result example: clustering results registered to brain slices.
-
-<p align="center">
-    <img src="docs/image/test.png">
-<p>

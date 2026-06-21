@@ -1,102 +1,551 @@
 # DBiT-spatial-DARLIN Technical Documentation
 
-This document provides a detailed technical description of the DBiT-spatial-DARLIN pipeline.
+This document describes the implementation details of the DBiT-spatial-DARLIN processing workflow. For runnable examples and a shorter overview, see the repository [README](../README.md).
 
-- Step scripts:
-  - `dbit_mrna.sh` 
-  - `image.sh`
-  - `dbit_amplicon.sh`
-  - `plot_cell_filtered.sh`
+## 1. Pipeline Scope
 
----
+The repository contains two related workflows:
 
-## 0. Pipeline Overview
+1. Quality control for DBiT spatial data:
+   - transcriptome FASTQ processing and spatial mRNA QC
+   - registered image splitting and StarDist cell counting
+   - DARLIN amplicon FASTQ processing and spatial clone-call QC
+   - cell-filtered visualization and optional image merging
+2. Clone analysis:
+   - split clone calls by predicted cell count
+   - filter LR sequences against allele-bank definitions
+   - plot the top LR clones on the mRNA Leiden cluster background
 
-This project is used for quality control of sequencing data from DBiT.
+Primary shell entry points:
 
-There are four shell scripts to process data from three modalities.
+```text
+script/Quality_Control/dbit_mrna.sh
+script/Quality_Control/image.sh
+script/Quality_Control/dbit_amplicon.sh
+script/Quality_Control/plot_cell_filtered.sh
+script/Clone_Analysis/top_lr_pipeline.sh
+```
 
-`plot_cell_filtered.sh` is used to integrate data from three modalities.
+All shell entry points run Python modules through `pixi run -e <env>`.
 
----
+## 2. Shared Concepts
 
-## 1. Transcriptome
+### Spatial Coordinates
 
-1. Extract spatial barcode and UMI based on sequence information.
-  
-    This is the structure of barcode and UMI.
+Spatial spot coordinates are stored as integer `x` and `y` columns. Most spatial plotting code uses image-like coordinates:
 
-    ![Barcode and UMI structure](image/barcode.png)
+- `x` increases left to right.
+- `y` increases top to bottom.
+- Matplotlib plots call `invert_yaxis()` when needed to preserve this image-coordinate interpretation.
 
+### Barcode Structure
 
-2. Using STARsolo to align transcriptome to genome.
-3. Cluster spots and plot the cluster labels according to spatial location.
+Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode and a 10 bp UMI. The 16 bp spatial barcode is built from two 8 bp components.
 
-### 1.1 Transcriptome Clustering
+![Barcode and UMI structure](image/barcode.png)
 
-The mRNA QC clustering step is implemented in `script/Quality_Control/python/plot/cluster.py`.
-It starts from the STARsolo count matrix after QC filtering and uses the following workflow:
+### Orientation Parameters
 
-1. Save raw QC metrics before normalization.
+`image.sh` and `plot_cell_filtered.sh` share orientation controls:
 
-   The raw total UMI count (`total_counts`) and detected gene count (`n_genes_by_counts`) are extracted before normalization. These values are written to `data.csv` as `umi_count` and `gene_count`.
+```text
+--orientation normal
+--orientation horizontal
+--orientation vertical
+--orientation rotate
+--swap_xy
+```
 
-2. Normalize and reduce dimensionality with an SCT-like Pearson residual workflow.
+These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis plotting script uses its own `--rotate <0|90|180|270>` option because it transforms spot coordinates directly rather than transforming merged image overlays.
 
-   The pipeline uses `scanpy.experimental.pp.recipe_pearson_residuals` with:
+## 3. Transcriptome Workflow
 
-   - `theta = 100`
-   - `n_top_genes = 3000`, capped by the number of available genes
-   - `n_comps = 50`, capped by the number of available spots and genes
-   - `random_state = 42`
+Entry point:
 
-   This is a Pearson residual normalization workflow similar in purpose to SCT normalization, but it is implemented through Scanpy rather than directly through Seurat SCT.
+```text
+script/Quality_Control/dbit_mrna.sh
+```
 
-3. Build an SNN graph from PCA coordinates.
+### 3.1 Preprocessing
 
-   The SNN graph is constructed from `adata.obsm["X_pca"]` using:
+The shell script locates transcriptome FASTQ pairs from `--fastq_path`, then calls the preprocessing Python code under:
 
-   - `n_neighbors = 10`
-   - `n_pcs = 20`, capped by the number of available PCs
-   - Euclidean nearest-neighbor search
-   - Jaccard-style SNN edge weights, calculated as shared neighbors divided by total neighbors
+```text
+script/Quality_Control/python/preprocessing/
+```
 
-   The resulting graph is stored in:
+Main operations:
 
-   - `adata.obsp["connectivities"]`
-   - `adata.obsp["distances"]`
-   - `adata.uns["neighbors"]`
+1. Match linker sequences.
+2. Extract barcode and UMI sequence.
+3. Optionally correct barcode components against the whitelist.
+4. Write barcode/UMI FASTQ files for downstream STARsolo processing.
 
-4. Run UMAP and Leiden clustering.
+Important parameters:
 
-   UMAP is run on the SNN graph with `random_state = 42`.
+- `--linker1`, `--linker2`: expected linker sequences.
+- `--mm_rate`: mismatch rate for linker matching.
+- `--bc_max_dist`: maximum barcode correction distance.
+- `--gzip_output`: whether preprocessing output is gzipped immediately.
+- `--gzip_after_preprocess`: whether uncompressed preprocessing output is compressed after extraction.
 
-   Leiden clustering is run on `adata.obsp["connectivities"]` with:
+### 3.2 STARsolo Alignment
 
-   - `resolution = 0.2`
-   - `flavor = "igraph"`
-   - `n_iterations = 2`
-   - `directed = False`
-   - `random_state = 42`
+`dbit_mrna.sh` runs STAR with `GeneFull` solo features. Relevant STARsolo settings include:
 
-5. Save clustering outputs.
+```text
+--soloType CB_UMI_Simple
+--soloCBstart 1
+--soloCBlen 16
+--soloUMIstart 17
+--soloUMIlen 10
+--soloCBwhitelist None
+--soloCellFilter EmptyDrops_CR
+--soloFeatures GeneFull
+```
 
-   The clustering step writes:
+The default barcode and UMI positions match the preprocessing FASTQ layout:
 
-   - `pca.png`: PCA variance ratio plot
-   - `umap.png`: UMAP colored by Leiden cluster
-   - `frame_umap.png`: spatial cluster map
-   - `umap_legend.png`: cluster color legend
-   - `data.csv`: spot-level QC and cluster table, including `x`, `y`, `umi_count`, `gene_count`, `leiden`, and `color`
-   - `clustered.h5ad`: AnnData object with normalized representation, PCA, SNN graph, UMAP, Leiden cluster labels, and cluster colors
+- cell barcode: bases 1-16
+- UMI: bases 17-26
 
-## 2. Image
+STAR outputs are written under:
 
-1. Extract the sampling area based on the transcriptome plot results.
-2. Cut the image according to the actual sampling area and use stardist to predict the number of cells.
+```text
+<output_path>/results/<sample_name>/Solo.out/GeneFull/
+```
 
-## 3. Amplicon
+### 3.3 mRNA QC and Clustering
 
-1. Extract the DARLIN sequence. (optional)
-2. Extract spatial barcode and UMI based on sequence information.
-3. Correct DARLIN sequence.
+After STARsolo, `dbit_mrna.sh` calls:
+
+```text
+script/Quality_Control/python/mrna.py
+```
+
+This runs QC, filtering, plotting, and clustering. The clustering implementation is in:
+
+```text
+script/Quality_Control/python/plot/cluster.py
+```
+
+The clustering workflow:
+
+1. Load the STARsolo count matrix.
+2. Save raw QC metrics before normalization.
+3. Filter spots using UMI and gene thresholds.
+4. Normalize with a Scanpy Pearson-residual workflow.
+5. Run PCA.
+6. Build an SNN graph from PCA coordinates.
+7. Run UMAP and Leiden clustering.
+8. Write spatial cluster plots and tabular outputs.
+
+Key defaults:
+
+- `--umi_min`: `900`
+- `--gene_min`: `300`
+- `--min_cells`: `3`
+- Pearson residual `theta`: `100`
+- Pearson residual `n_top_genes`: `3000`, capped by available genes
+- PCA `n_comps`: `50`, capped by available spots and genes
+- SNN `n_neighbors`: `10`
+- SNN `n_pcs`: `20`, capped by available PCs
+- Leiden `resolution`: `0.2`
+- Leiden `random_state`: `42`
+
+Important mRNA outputs:
+
+```text
+Solo.out/GeneFull/raw/
+├── data.csv
+├── clustered.h5ad
+├── pca.png
+├── umap.png
+├── frame_umap.png
+├── umap_legend.png
+├── umi_filtered.png
+├── gene_filtered.png
+└── gene_per_cell_filtered.png
+```
+
+`data.csv` contains spot-level information including:
+
+- `x`, `y`
+- raw QC metrics such as `umi_count` and `gene_count`
+- `leiden`
+- `color`
+
+`data_cellfiltered.csv` is produced later by `plot_cell_filtered.sh` after merging image-derived cell counts with mRNA spot data.
+
+## 4. Image Workflow
+
+Entry point:
+
+```text
+script/Quality_Control/image.sh
+```
+
+The image workflow assumes a registered and cropped image, usually named `align.png`.
+
+Main steps:
+
+1. Split the registered image into DBiT grid tiles.
+2. Run StarDist on each tile.
+3. Summarize predicted cell count and area per spot.
+4. Filter spots by cell-count cutoff.
+5. Write a preview image and cell-count table.
+
+Implementation files:
+
+```text
+script/Quality_Control/python/stardist_segment.py
+script/Quality_Control/python/image_process/split.py
+script/Quality_Control/python/image_process/stardist_predict.py
+script/Quality_Control/python/cell_filter.py
+```
+
+Important outputs:
+
+```text
+image/
+├── result.png
+├── cell_num_area.csv
+├── filtered_results.csv
+├── mask/
+├── label/
+└── split/
+```
+
+`filtered_results.csv` is the image-derived table used by `plot_cell_filtered.sh`. It contains spot coordinates and predicted cell-count information.
+
+The image workflow uses the `image` Pixi environment because it depends on TensorFlow, StarDist, OpenCV, and related image packages.
+
+## 5. Amplicon Workflow
+
+Entry point:
+
+```text
+script/Quality_Control/dbit_amplicon.sh
+```
+
+The amplicon workflow processes CA, RA, and TA DARLIN amplicon FASTQ files. The script infers the locus from sample names containing `CA`, `RA`, or `TA`.
+
+### 5.1 Preprocessing
+
+Main operations:
+
+1. Optionally run cutadapt.
+2. Extract spatial barcode and UMI.
+3. Extract DARLIN lineage barcode sequence when `--darlin True`.
+4. Write barcode-matched FASTQs.
+
+Important preprocessing parameters:
+
+- `--cutadapt`: whether to trim reads before extraction.
+- `--cores`: parallelism for cutadapt and barcode extraction.
+- `--base_quality`: base-quality threshold.
+- `--linker1`, `--linker2`, `--mm_rate`: linker matching.
+- `--gzip_output`, `--gzip_after_preprocess`: output compression behavior.
+
+### 5.2 DARLIN Correction
+
+After preprocessing, the shell script calls:
+
+```text
+script/Quality_Control/python/amplicon.py
+```
+
+The correction workflow:
+
+1. Collapse raw molecules by barcode, UMI, and lineage barcode.
+2. Filter low-read raw molecules with `--initial_reads_cutoff`.
+3. Correct spatial barcodes to the whitelist.
+4. Correct UMIs within each spatial barcode using `--umi_hd_threshold`.
+5. Correct lineage barcodes using `--lb_error_rate` and `--lb_min_hd`.
+6. Keep the major LR per SR/UR group using `--major_fraction_threshold_molecule`.
+7. Compute SR-level reads-per-UMI slope `k = n_reads / n_UR`.
+8. Filter low-quality SR groups with `--slope_cutoff`.
+9. Filter final rows with `--final-reads-cutoff`.
+
+Important columns:
+
+- `SR`: spatial barcode / spot identity
+- `UR`: UMI after correction
+- `LR`: corrected lineage barcode
+- `reads`: read support
+- `reads_fraction`: LR fraction within an SR/UR group
+- `k`: SR-level reads-per-UMI slope
+- `n_LR`: number of unique LR values within an SR
+
+Important outputs per locus:
+
+```text
+amplicon/results/<sample_name>/<CA|RA|TA>/
+├── final.csv
+├── dbit.log
+├── Reads_counts_heatmap.png
+├── UMI_counts_heatmap.png
+├── lr_per_sr_hist.png
+├── reads_cutoff_qc.png
+├── reads_fraction_qc.png
+└── sr_reads_vs_umis.png
+```
+
+`final.csv` is the main per-locus clone-call table used by downstream cell-filtered plotting.
+
+## 6. Cell-Filtered Visualization
+
+Entry point:
+
+```text
+script/Quality_Control/plot_cell_filtered.sh
+```
+
+This step combines image-derived cell count information with mRNA and/or amplicon spatial results.
+
+Inputs:
+
+- `-c, --cell_number_file`: usually `image/filtered_results.csv`
+- `-m, --mrna_dir`: STARsolo `GeneFull` directory
+- `-a, --amp_dir`: amplicon result directory
+- `-w, --whitelist`: barcode whitelist, required for amplicon plotting
+- `-g, --gray_path`: grayscale image for merged overlays
+
+For mRNA data, the script calls:
+
+```text
+script/Quality_Control/python/mrna_cell.py
+```
+
+Key mRNA output:
+
+```text
+<mrna_dir>/raw/data_cellfiltered.csv
+<mrna_dir>/raw/umap_filtered.png
+<mrna_dir>/raw/umi_filtered.png
+<mrna_dir>/raw/gene_filtered.png
+<mrna_dir>/raw/merged_umap_filtered.png
+<mrna_dir>/filtered/data_cellfiltered.csv
+<mrna_dir>/filtered/umap_filtered.png
+<mrna_dir>/filtered/umi_filtered.png
+<mrna_dir>/filtered/gene_filtered.png
+<mrna_dir>/filtered/merged_umap_filtered.png
+```
+
+For amplicon data, the script calls:
+
+```text
+script/Quality_Control/python/amplicon_cell.py
+```
+
+Key amplicon outputs are written per locus:
+
+```text
+<amp_dir>/<CA|RA|TA>/
+├── cellfiltered.csv
+├── umi_filtered.png
+└── merged_umi_filtered.png
+```
+
+When `gray.png` is available, `merge_on_gray.py` transforms each `*_filtered.png` image according to `--orientation` and `--swap_xy`, resizes the grayscale background, and composites the overlay on top.
+
+## 7. Clone Analysis
+
+Entry point:
+
+```text
+script/Clone_Analysis/top_lr_pipeline.sh
+```
+
+The clone-analysis workflow expects the amplicon cell-filtered outputs:
+
+```text
+<input_dir>/
+├── CA/cellfiltered.csv
+├── RA/cellfiltered.csv
+└── TA/cellfiltered.csv
+```
+
+It also requires:
+
+- an allele-bank directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
+- an mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
+
+### 7.1 Cell Count Split
+
+Implemented in:
+
+```text
+script/Clone_Analysis/python/cellcount_filter.py
+```
+
+For each SR spot:
+
+1. Count unique LR values in the spot.
+2. Read the predicted image-derived cell count from the `count` column.
+3. Assign the spot to:
+   - `n_LR_gt_count` if unique LR count is greater than predicted cell count
+   - `n_LR_le_count` otherwise
+
+Outputs per label:
+
+```text
+cellfiltered.n_LR_gt_count.csv
+cellfiltered.n_LR_le_count.csv
+cellfiltered.count_summary.txt
+```
+
+This step no longer makes spatial plots. It only writes tables and summaries.
+
+### 7.2 Allele-Bank Filter
+
+Implemented in:
+
+```text
+script/Clone_Analysis/python/allele_bank_filter.py
+```
+
+This step:
+
+1. Reads each label's `cellfiltered.csv`.
+2. Runs `darlin_core.analyze_sequences` on unique LR sequences.
+3. Compares the resulting mutation strings against the label-specific allele-bank file.
+4. Keeps LR rows whose mutation patterns are not present in the allele bank.
+5. Writes a cache file named `.analyzed_cache.csv` under each label output directory.
+
+Label-to-bank mapping:
+
+```text
+CA -> allele_bank_Gr_CA.csv.gz, config Col1a1
+RA -> allele_bank_Gr_RA.csv.gz, config Rosa
+TA -> allele_bank_Gr_TA.csv.gz, config Tigre
+```
+
+Output per label:
+
+```text
+cellfiltered.bank_filtered.csv
+```
+
+### 7.3 Top LR Spatial Plot
+
+Implemented in:
+
+```text
+script/Clone_Analysis/python/top_lr_plot.py
+```
+
+The plotter:
+
+1. Reads `cellfiltered.bank_filtered.csv`.
+2. Groups by LR and ranks clones by:
+   - number of unique SR spots
+   - number of unique UR values
+   - total read support
+   - LR sequence
+3. Selects the top `--top-n` LR clones.
+4. Draws a Leiden cluster background from the mRNA cluster CSV.
+5. Overlays hollow circles on spots containing the selected LR.
+6. Sizes circles by unique UR count:
+   - `1`
+   - `2`
+   - `3+`
+
+Plot details:
+
+- `--cluster-alpha` controls both Leiden background opacity and the cluster legend opacity.
+- `--rotate <0|90|180|270>` rotates spot coordinates for clone-analysis plots.
+- Titles are formatted into a fixed-height area so output PNG dimensions stay constant.
+- Edge padding and unclipped LR circles are used so boundary circles are not cut off.
+
+Outputs per label:
+
+```text
+top_lr_plots/
+├── topLR_001_srXXX_urXXX.png
+├── topLR_002_srXXX_urXXX.png
+└── <LABEL>_top_lr_plot_manifest.csv
+```
+
+The manifest contains:
+
+- `rank`
+- `LR`
+- `unique_SR`
+- `unique_UR`
+- `total_reads`
+- `plot_file`
+
+## 8. Output Summary
+
+Typical high-level result layout:
+
+```text
+sample_name/
+├── transcriptome/
+│   └── results/
+├── image/
+│   ├── filtered_results.csv
+│   └── gray.png
+└── amplicon/
+    └── results/
+        └── sample_name/
+            ├── CA/
+            ├── RA/
+            └── TA/
+```
+
+Clone-analysis output layout:
+
+```text
+<output_dir>/
+├── CA/
+│   ├── cellfiltered.n_LR_gt_count.csv
+│   ├── cellfiltered.n_LR_le_count.csv
+│   ├── cellfiltered.count_summary.txt
+│   ├── cellfiltered.bank_filtered.csv
+│   ├── .analyzed_cache.csv
+│   └── top_lr_plots/
+│       ├── topLR_001_srXXX_urXXX.png
+│       └── CA_top_lr_plot_manifest.csv
+├── RA/
+└── TA/
+```
+
+## 9. Recommended Debug Checks
+
+1. Inspect preprocessing logs when barcode output is unexpectedly small:
+
+   ```text
+   <output_path>/<sample_name>_preprocess.log
+   ```
+
+2. Inspect STAR logs when mRNA matrices are missing:
+
+   ```text
+   results/<sample_name>/STAR.log
+   results/<sample_name>/Solo.out/qc.log
+   ```
+
+3. Inspect image registration before trusting cell-filtered plots:
+
+   ```text
+   image/result.png
+   image/filtered_results.csv
+   ```
+
+4. Inspect amplicon correction summaries and QC plots:
+
+   ```text
+   amplicon/results/<sample>/<label>/dbit.log
+   amplicon/results/<sample>/<label>/reads_fraction_qc.png
+   amplicon/results/<sample>/<label>/sr_reads_vs_umis.png
+   ```
+
+5. Inspect clone-analysis intermediate files before interpreting top LR plots:
+
+   ```text
+   cellfiltered.count_summary.txt
+   cellfiltered.bank_filtered.csv
+   top_lr_plots/*_top_lr_plot_manifest.csv
+   ```

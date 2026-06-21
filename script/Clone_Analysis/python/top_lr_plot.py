@@ -28,6 +28,12 @@ import pandas as pd
 
 
 LABELS = ("CA", "RA", "TA")
+PLOT_EDGE_PAD = 0.9
+TITLE_WRAP_WIDTH = 36
+TITLE_LINE_COUNT = 3
+FIG_SIZE = (5.0, 5.1)
+FIG_TOP = 0.84
+FIG_BOTTOM = 0.04
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,13 +75,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         choices=[0, 90, 180, 270],
         default=0,
-        help="Rotate the plot counterclockwise by 0, 90, 180, or 270 degrees.",
+        help="Rotate the plot clockwise by 0, 90, 180, or 270 degrees.",
+    )
+    parser.add_argument(
+        "--cluster-alpha",
+        type=float,
+        default=0.5,
+        help="Alpha for the Leiden cluster background spots. Default: 0.5.",
     )
     return parser.parse_args()
 
 
 def resolve_input_path(input_dir: Path, label: str) -> Path:
-    input_path = input_dir / label / "cellfiltered.n_LR_le_count.bank_filtered.csv"
+    input_path = input_dir / label / "cellfiltered.bank_filtered.csv"
     if input_path.exists():
         return input_path
     raise SystemExit(f"Input file not found: {input_path}")
@@ -182,6 +194,15 @@ def legend_marker_size_from_scatter_area(area: float) -> float:
     return math.sqrt(area) * 0.95
 
 
+def format_fixed_height_title(text: str, width: int = TITLE_WRAP_WIDTH, line_count: int = TITLE_LINE_COUNT) -> str:
+    lines = textwrap.wrap(text, width=width) or [""]
+    if len(lines) > line_count:
+        lines = lines[:line_count]
+        lines[-1] = lines[-1][: max(width - 3, 0)].rstrip() + "..."
+    lines.extend([" "] * (line_count - len(lines)))
+    return "\n".join(lines)
+
+
 def rotate_coordinates(
     frame: pd.DataFrame,
     x_spots: int,
@@ -242,6 +263,7 @@ def _plot_lr_spatial(
     y_spots: int,
     circle_color: str,
     rotate: int,
+    cluster_alpha: float,
 ) -> None:
     cluster_frame, plot_x_spots, plot_y_spots = rotate_coordinates(
         cluster_frame,
@@ -283,7 +305,7 @@ def _plot_lr_spatial(
         )
         if mutations_values:
             mutations_text = mutations_values[0]
-    mutations_text = textwrap.fill(mutations_text, width=36)
+    mutations_text = format_fixed_height_title(mutations_text)
 
     cluster_legend = (
         cluster_frame[["leiden", "color"]]
@@ -292,10 +314,10 @@ def _plot_lr_spatial(
         .reset_index(drop=True)
     )
     cluster_handles = [
-        Patch(facecolor=row.color, edgecolor="none", label=f"{row.leiden}")
+        Patch(facecolor=row.color, edgecolor="none", alpha=cluster_alpha, label=f"{row.leiden}")
         for row in cluster_legend.itertuples(index=False)
     ]
-    umi_bins = [(30, "1"), (70, "2"), (140, "3")]
+    umi_bins = [(30, "1"), (70, "2"), (140, "3+")]
     umi_handles = [
         Line2D(
             [0],
@@ -314,7 +336,7 @@ def _plot_lr_spatial(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig, (ax, legend_ax) = plt.subplots(
         ncols=2,
-        figsize=(5.0, 4.6),
+        figsize=FIG_SIZE,
         gridspec_kw={"width_ratios": [5.7, 0.82]},
     )
     ax.scatter(
@@ -323,7 +345,7 @@ def _plot_lr_spatial(
         s=28,
         c=cluster_frame["color"],
         marker="s",
-        alpha=0.95,
+        alpha=cluster_alpha,
         linewidths=0,
     )
     if not lr_spots.empty:
@@ -334,10 +356,11 @@ def _plot_lr_spatial(
             facecolors="none",
             edgecolors=circle_color,
             linewidths=1.5,
+            clip_on=False,
         )
 
-    ax.set_xlim(-0.5, plot_x_spots - 0.5)
-    ax.set_ylim(-0.5, plot_y_spots - 0.5)
+    ax.set_xlim(-PLOT_EDGE_PAD, plot_x_spots - 1 + PLOT_EDGE_PAD)
+    ax.set_ylim(-PLOT_EDGE_PAD, plot_y_spots - 1 + PLOT_EDGE_PAD)
     ax.set_aspect("equal")
     ax.invert_yaxis()
     ax.set_xticks([])
@@ -375,8 +398,8 @@ def _plot_lr_spatial(
         bbox_to_anchor=(0.0, 0.33),
     )
 
-    fig.subplots_adjust(left=0.028, right=0.998, top=0.925, bottom=0.04, wspace=0.0)
-    fig.savefig(output_path, dpi=300, bbox_inches="tight", pad_inches=0.01)
+    fig.subplots_adjust(left=0.028, right=0.998, top=FIG_TOP, bottom=FIG_BOTTOM, wspace=0.0)
+    fig.savefig(output_path, dpi=300)
     plt.close(fig)
 
 
@@ -391,6 +414,7 @@ def process_label(
     cluster_frame: pd.DataFrame,
     top_n: int,
     rotate: int,
+    cluster_alpha: float,
 ) -> None:
     input_file = resolve_input_path(input_dir, label)
     frame = pd.read_csv(input_file, dtype=str, keep_default_na=False)
@@ -424,6 +448,7 @@ def process_label(
             y_spots=y_spots,
             circle_color=circle_color,
             rotate=rotate,
+            cluster_alpha=cluster_alpha,
         )
         manifest_rows.append(
             {
@@ -460,6 +485,7 @@ def main() -> None:
             cluster_frame=cluster_frame,
             top_n=args.top_n,
             rotate=args.rotate,
+            cluster_alpha=args.cluster_alpha,
         )
 
 

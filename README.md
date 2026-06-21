@@ -37,6 +37,10 @@ Quality control entry points:
 3. `script/Quality_Control/dbit_amplicon.sh`: process amplicon data.
 4. `script/Quality_Control/plot_cell_filtered.sh`: generate cell-filtered plots and optionally merge them onto `gray.png`.
 
+Clone analysis entry point:
+
+- `script/Clone_Analysis/top_lr_pipeline.sh`: filter DARLIN clone calls and plot top LR spatial overlays.
+
 ## 1. Environment
 
 This project uses `pixi` as the environment manager.
@@ -119,6 +123,18 @@ bash script/Quality_Control/plot_cell_filtered.sh \
 
 Orientation options used by `image.sh` and `plot_cell_filtered.sh` are `normal`, `horizontal`, `vertical`, and `rotate`. Use `--swap_xy` together with `--orientation` for 90-degree rotation. See [ORIENTATION.md](docs/ORIENTATION.md) for examples and schematic images.
 
+Clone analysis after QC:
+
+```bash
+bash script/Clone_Analysis/top_lr_pipeline.sh \
+    -i /path/to/sample_name/amplicon/results/sample_name \
+    -b /path/to/allele_bank \
+    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/data_cellfiltered.csv \
+    --labels CA RA TA \
+    --top-n 10 \
+    --rotate 0
+```
+
 ### Execution Order
 
 1. Run `script/Quality_Control/dbit_mrna.sh` to process transcriptome FASTQ files. This generates transcriptome QC outputs, including plots that can be used for image registration.
@@ -126,6 +142,7 @@ Orientation options used by `image.sh` and `plot_cell_filtered.sh` are `normal`,
 3. Run `script/Quality_Control/image.sh` on `align.png` to split the image, run StarDist segmentation, and generate `filtered_results.csv`.
 4. Run `script/Quality_Control/dbit_amplicon.sh` to process amplicon FASTQ files. This can be completed before the final integration step.
 5. Run `script/Quality_Control/plot_cell_filtered.sh` with `filtered_results.csv` to generate cell-filtered transcriptome and/or amplicon plots. If `gray.png` is available, merged images are generated automatically.
+6. Optional: run `script/Clone_Analysis/top_lr_pipeline.sh` after amplicon QC to split clone calls by predicted cell count, filter out allele-bank clones, and plot the largest LR clones on the mRNA cluster background.
 
 ## 3. Script Interfaces
 
@@ -222,6 +239,63 @@ Spatial options passed to both mRNA and amplicon cell-filtered plotting:
 - `--x_spots_number <num>` and `--y_spots_number <num>`: grid dimensions; default `50` and `50`
 - `--length_spot <num>`, `--interval <num>`, `--pixel_length <float>`: spot geometry parameters
 
+### Clone analysis
+
+Recommended entry point:
+
+- `script/Clone_Analysis/top_lr_pipeline.sh`
+
+The pipeline runs three scripts in order:
+
+1. `cellcount_filter.py`: reads each label's `cellfiltered.csv`, compares the number of unique LR clones in each SR spot with the predicted cell count, and writes `n_LR_gt_count` and `n_LR_le_count` tables.
+2. `allele_bank_filter.py`: filters clone calls against the label-specific allele bank files (`allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`).
+3. `top_lr_plot.py`: ranks LR clones by the number of SR spots containing them and plots the top clones over the mRNA Leiden cluster background.
+
+Required:
+
+- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `cellfiltered.csv` files.
+- `-b, --bank-dir <dir>`: directory containing allele-bank files.
+- `--cluster-csv <path>`: mRNA cluster CSV with `x`, `y`, `leiden`, and `color` columns. This is used as the spatial background for clone plots.
+
+Common options:
+
+- `--labels <label...>`: labels to process; default `CA RA TA`
+- `--output-dir <dir>`: output directory; defaults to `input-dir`
+- `--min-sequence-length <num>`: minimum sequence length passed to DARLIN allele analysis; default `20`
+- `--top-n <num>`: number of top LR plots per label; default `10`
+- `--rotate <0|90|180|270>`: rotate top LR plots; default `0`
+- `--pixi_env <name>`: pixi environment name; default `default`
+- `--pixi_env_dir <path>`: directory containing `pixi.toml`; default repository root
+
+Example:
+
+```bash
+bash script/Clone_Analysis/top_lr_pipeline.sh \
+    -i /path/to/sample_name/amplicon/results/sample_name \
+    -b /path/to/allele_bank \
+    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/data_cellfiltered.csv \
+    --labels CA RA TA \
+    --top-n 10
+```
+
+Important outputs:
+
+```text
+<output_dir>/
+├── CA/
+│   ├── cellfiltered.n_LR_gt_count.csv
+│   ├── cellfiltered.n_LR_le_count.csv
+│   ├── cellfiltered.count_summary.txt
+│   ├── cellfiltered.bank_filtered.csv
+│   └── top_lr_plots/
+│       ├── topLR_001_srXXX_urXXX.png
+│       └── CA_top_lr_plot_manifest.csv
+├── RA/
+└── TA/
+```
+
+`top_lr_plot.py` can also be run directly when the intermediate filtered files already exist. It supports `--cluster-alpha` to make the Leiden background more transparent; the same alpha is used for the cluster legend.
+
 ## 4. Output Directory Structure
 
 Main output locations:
@@ -233,8 +307,12 @@ sample_name/
 ├── image/
 |   ├── filtered_results.csv
 |   └── gray.png
-└── transcriptome/
-    └── results/
+├── transcriptome/
+|   └── results/
+└── clone-analysis outputs, usually under amplicon/results/sample_name/
+    ├── CA/
+    ├── RA/
+    └── TA/
 ```
 
 Key result example: clustering results registered to brain slices.

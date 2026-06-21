@@ -181,6 +181,7 @@ cython_debug/
 .cursorindexingignore
 
 # pixi environments
+.pixi
 .pixi/*
 !.pixi/config.toml
 path.txt

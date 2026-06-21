@@ -123,7 +123,7 @@ run_step() {
 }
 
 
-cellcount_args=(--input-dir "$input_dir" --cluster-csv "$cluster_csv" --labels "${labels[@]}")
+cellcount_args=(--input-dir "$input_dir" --labels "${labels[@]}")
 allele_args=(--input-dir "$input_dir" --bank-dir "$bank_dir" --min-sequence-length "$min_sequence_length" --labels "${labels[@]}")
 plot_args=(--input-dir "$input_dir" --cluster-csv "$cluster_csv" --top-n "$top_n" --rotate "$rotate" --labels "${labels[@]}")
 

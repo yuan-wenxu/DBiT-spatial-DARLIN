@@ -48,7 +48,7 @@ script/
 │   ├── mrna.sh
 │   ├── image.sh
 │   ├── amplicon.sh
-│   ├── plot_cell_filtered.sh
+│   ├── plot.sh
 │   └── python/
 └── Clone_Analysis/
     ├── top_lr_pipeline.sh
@@ -76,23 +76,90 @@ Pixi environments:
 Run commands from the repository root:
 
 ```bash
-cd /path/to/DBiT-spatial-DARLIN
+cd /path/to/DBiT-spatial-DARLIN/script
 ```
 
-Copy `script/config.sh`, then edit the path block at the top
-and any pipeline parameters. Select `execution_mode=local` or
-`execution_mode=hpc` in that config and run:
+Copy `config.sh` into the dataset directory, or keep the copy in the current
+`script/` directory under a sample-specific name such as `config.sample.sh`.
+Then edit its reference settings and pipeline parameters, and select
+`execution_mode=local` or `execution_mode=hpc`.
 
 ```bash
-bash script/dbit.sh mrna /path/to/config.sh --chip 50-20
+# Option 1: store the config with the dataset
+cp config.sh /path/to/sample_name/config.sh
+bash dbit.sh mrna --input /path/to/transcriptome/fastq --config /path/to/sample_name/config.sh --chip 50-20
+
+# Option 2: keep a renamed copy in the script directory
+cp config.sh config.sample.sh
+bash dbit.sh mrna --input /path/to/transcriptome/fastq --config config.sample.sh --chip 50-20
 ```
 
-The first argument selects exactly one step: `mrna`, `amplicon`, `image`, or
-`plot`. `--chip` selects one of three presets defined in `dbit.sh`:
+The mRNA step also accepts optional filtering thresholds. Supplied values are
+appended to the dataset config; omitted values keep the config defaults:
+
+```bash
+bash dbit.sh mrna \
+    --input /path/to/transcriptome/fastq \
+    --config /path/to/config.sh \
+    --chip 50-20 \
+    --umi-min 900 \
+    --gene-min 300 \
+    --min-cell 3
+```
+
+These filtering options are accepted only by the `mrna` step.
+
+The amplicon step provides its own optional filtering thresholds:
+
+```bash
+bash dbit.sh amplicon \
+    --input /path/to/amplicon/fastq \
+    --config /path/to/config.sh \
+    --chip 50-20 \
+    --initial-reads-cutoff 100 \
+    --major-fraction-threshold-molecule 0.8 \
+    --reads-cutoff 10 \
+    --slope-cutoff 10
+```
+
+These options are accepted only by the `amplicon` step and are appended to the
+dataset config when supplied.
+
+Image requires both orientation parameters and stores them for reuse by plot:
+
+```bash
+bash dbit.sh image \
+    --input /path/to/align.png \
+    --config /path/to/config.sh \
+    --chip 50-20 \
+    --orientation horizontal \
+    --swap-xy True
+```
+
+These required options are accepted only by the `image` step. The plot step
+reads the values previously written to the dataset config and fails if they are
+absent.
+
+Plot is the final QC step. It reads all accumulated
+paths and orientation settings from the dataset config, so it needs no input:
+
+```bash
+bash dbit.sh plot --config /path/to/config.sh
+```
+
+The recommended order is `mrna → amplicon → image → plot`. For `mrna`,
+`amplicon`, and `image`, `--input` supports shell path completion and each run
+appends its input and derived result paths to the dataset config.
+
+`--chip` selects one of three presets defined in `dbit.sh`:
 
 - `50-50`: 50x50 spots, spot length 50, interval 50
 - `50-20`: 50x50 spots, spot length 20, interval 20
 - `100-20`: 100x100 spots, spot length 20, interval 20
+
+The selected chip name is appended to the per-dataset config. After it has been
+written once, later steps may omit `--chip`; supplying it again appends a newer
+selection. Grid dimensions remain defined only in `dbit.sh`.
 
 The matching 50- or 100-barcode whitelist is selected automatically. Invoke
 `dbit.sh` once per step that should be run or submitted.
@@ -103,7 +170,7 @@ job. Chip presets are not duplicated in the config or worker scripts.
 ### Clone Analysis
 
 ```bash
-bash script/Clone_Analysis/top_lr_pipeline.sh \
+bash Clone_Analysis/top_lr_pipeline.sh \
     -i /path/to/sample_name/amplicon/results/sample_name \
     -b /path/to/allele_bank \
     --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull/raw/data_cellfiltered.csv
@@ -117,7 +184,7 @@ This workflow:
 
 ## 4. Orientation
 
-`image.sh` and `plot_cell_filtered.sh` read the same orientation values from
+`image.sh` and `plot.sh` read the same orientation values from
 the QC config:
 
 ```bash
@@ -143,15 +210,22 @@ Use the same orientation settings for image splitting and filtered-plot merging 
 Use `-h` or `--help` for the full current interface:
 
 ```bash
-bash script/Quality_Control/mrna.sh -h
-bash script/Quality_Control/image.sh -h
-bash script/Quality_Control/amplicon.sh -h
-bash script/Quality_Control/plot_cell_filtered.sh -h
-bash script/Clone_Analysis/top_lr_pipeline.sh -h
+bash dbit.sh -h
+bash dbit.sh mrna -h
+bash dbit.sh amplicon -h
+bash dbit.sh image -h
+bash dbit.sh plot -h
+bash Quality_Control/mrna.sh -h
+bash Quality_Control/image.sh -h
+bash Quality_Control/amplicon.sh -h
+bash Quality_Control/plot.sh -h
+bash Clone_Analysis/top_lr_pipeline.sh -h
 ```
 
-Use `dbit.sh <step> <config_file> --chip <chip_name>` as the QC entry point.
-Paths and non-chip parameters are documented inline in the config template.
+Use `dbit.sh <step> --input <path> --config <file> [--chip <name>]` for data
+steps and `dbit.sh plot --config <file> [--chip <name>]` for plotting.
+Use `dbit.sh <step> -h` for step-specific command-line parameters; base
+pipeline and SLURM settings are documented inline in the config template.
 
 ### `top_lr_pipeline.sh`
 

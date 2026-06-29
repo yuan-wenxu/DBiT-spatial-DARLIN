@@ -7,7 +7,7 @@ Usage: $0 <config_file>
 Process amplification sequencing data with preprocessing, DARLIN correction, and visualization.
 
 Arguments:
-  config_file   QC configuration containing amplicon_fastq_path and parameters
+  config_file   Per-dataset QC configuration file
 
 Examples:
   $0 config.sh
@@ -28,6 +28,11 @@ fi
 source "$config_file"
 pixi_env=${pixi_env:-default}
 pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
+initial_reads_cutoff=${initial_reads_cutoff:-100}
+major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
+reads_fraction_mode=${reads_fraction_mode:-sum}
+reads_cutoff=${reads_cutoff:-10}
+slope_cutoff=${slope_cutoff:-10}
 if [[ -z ${amplicon_fastq_path:-} ]]; then
     echo "Error: amplicon_fastq_path must be set in the QC config." >&2; exit 1
 fi
@@ -119,7 +124,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
     locus=$(echo "$sample_name" | grep -oE 'CA|RA|TA')
     r2=$file_path/$sample_name"_R2.fq.gz"
-    nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
+    nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\|_CA\|_RA\|_TA\)//')
 
     # Cutadapt and extract UMI and barcode
     gzip_after_enabled=false

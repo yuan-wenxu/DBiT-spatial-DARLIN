@@ -7,7 +7,7 @@ Usage: $0 <config_file>
 Plot filtered results (cell-filtered) for mRNA and/or amplicon data.
 
 Arguments:
-  config_file   QC configuration containing plotting paths and parameters
+  config_file   Per-dataset QC configuration file
 
 
 Examples:
@@ -32,6 +32,9 @@ pixi_env=${pixi_env:-default}
 pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
 if [[ -z ${cell_number_file:-} ]]; then
     echo "Error: cell_number_file must be set in the QC config." >&2; exit 1
+fi
+if [[ -z ${orientation:-} || -z ${swap_xy:-} ]]; then
+    echo "Error: orientation and swap_xy must first be written by the image step." >&2; exit 1
 fi
 for variable in x_spots_number y_spots_number length_spot interval; do
     if [[ -z ${!variable:-} ]]; then

@@ -1,15 +1,17 @@
 # Orientation Handling
 
-This document explains the orientation parameters used by `image.sh` and `plot_cell_filtered.sh`, and how to choose the correct setting with the schematic images.
+This document explains the orientation parameters used by `image.sh` and `plot.sh`, and how to choose the correct setting with the schematic images.
 
-Set both values once in the QC config:
+Pass both required values to the image step:
 
-- `orientation=<mode>`: one of `normal`, `horizontal`, `vertical`, or `rotate`
-- `swap_xy=True`: swap the x/y coordinate axes after applying `orientation`
+- `--orientation <mode>`: one of `normal`, `horizontal`, `vertical`, or `rotate`
+- `--swap-xy <bool>`: `True` swaps the x/y axes after applying orientation
 
 These parameters are used when the image coordinate system, spatial barcode coordinate system, and final visualization direction do not match.
 
-The same config values are consumed by both image-related scripts.
+`dbit.sh image` appends both values to the per-dataset config. The later plot
+step consumes those stored values and does not accept separate orientation
+arguments.
 
 ## 1. Where Orientation Is Applied
 
@@ -17,32 +19,32 @@ The same config values are consumed by both image-related scripts.
 
 `image.sh` splits `align.png` according to the spatial grid and names each tile as `x_y.tif`. The orientation parameters determine where spots such as `0_0`, `1_0`, and `0_1` are mapped on the original image.
 
-Set the config to:
+For example:
 
 ```bash
-orientation=horizontal
-swap_xy=False
+bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
+    --orientation horizontal --swap-xy False
 ```
 
 For a 90-degree direction adjustment:
 
 ```bash
-orientation=vertical
-swap_xy=True
+bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
+    --orientation vertical --swap-xy True
 ```
 
-### `plot_cell_filtered.sh`
+### `plot.sh`
 
-`plot_cell_filtered.sh` merges transcriptome/amplicon filtered plots onto `gray.png`. The orientation parameters determine how the filtered plots are flipped or rotated before merging, so that they align with `gray.png`.
+`plot.sh` merges transcriptome/amplicon filtered plots onto `gray.png`. The orientation parameters determine how the filtered plots are flipped or rotated before merging, so that they align with `gray.png`.
 
-For example, set:
+For example, the image command may store:
 
 ```bash
 orientation=rotate
 swap_xy=False
 ```
 
-Set `gray_path` in the QC config. If it is blank, `plot_cell_filtered.sh` looks
+Set `gray_path` in the QC config. If it is blank, `plot.sh` looks
 for `gray.png` in the same directory as `cell_number_file`.
 
 ## 2. Orientation Options
@@ -176,7 +178,7 @@ Use this when:
 
 1. Run `image.sh` first and inspect the generated `result.png`.
 2. Check whether spot `0_0` in `result.png` is in the expected position.
-3. If the spot labels are not oriented correctly, adjust `orientation` and `swap_xy` in the config using the table above.
-4. Run `plot_cell_filtered.sh` and check whether the generated `merged_*_filtered.png` files align with `gray.png`.
+3. If the labels are incorrect, rerun the image step with adjusted `--orientation` and `--swap-xy` values.
+4. Run `plot.sh` and check whether the generated `merged_*_filtered.png` files align with `gray.png`.
 
-Use the same orientation parameters for `image.sh` and `plot_cell_filtered.sh` whenever possible. This keeps image splitting, cell filtering results, and final merged plots consistent.
+Use the same orientation parameters for `image.sh` and `plot.sh` whenever possible. This keeps image splitting, cell filtering results, and final merged plots consistent.

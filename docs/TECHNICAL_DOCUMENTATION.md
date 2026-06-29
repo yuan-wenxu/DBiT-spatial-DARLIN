@@ -23,15 +23,31 @@ script/dbit.sh
 script/Quality_Control/mrna.sh
 script/Quality_Control/image.sh
 script/Quality_Control/amplicon.sh
-script/Quality_Control/plot_cell_filtered.sh
+script/Quality_Control/plot.sh
 script/Clone_Analysis/top_lr_pipeline.sh
 ```
 
-`dbit.sh` is the single-step local/SLURM launcher. Its first argument selects
-`mrna`, `amplicon`, `image`, or `plot`, and `--chip` accepts `50-50`, `50-20`,
-or `100-20`. Chip dimensions and whitelist selection are defined only in that
+`dbit.sh` is the single-step local/SLURM launcher. For `mrna`, `amplicon`, and
+`image`, it receives an input path through `--input` and appends that input plus derived result
+paths to the per-dataset config. The final `plot` step runs after image, reads
+those accumulated paths, and therefore needs no separate input. `--chip`
+accepts `50-50`, `50-20`, or
+`100-20`. Chip dimensions and whitelist selection are defined only in that
 launcher and exported to the selected worker job. All shell entry points run
 Python modules through `pixi run -e <env>`.
+
+The selected chip name is also appended to the per-dataset config. Later steps
+may omit `--chip` and reuse that value; a new command-line value is appended as
+the latest selection. Grid dimensions remain centralized in `dbit.sh`.
+
+The mRNA step optionally accepts `--umi-min`, `--gene-min`, and `--min-cell`;
+provided values are appended to the per-dataset config before submission and
+are rejected for other steps. The amplicon step similarly accepts
+`--initial-reads-cutoff`, `--major-fraction-threshold-molecule`,
+`--reads-cutoff`, and `--slope-cutoff`, all restricted to that step. Image runs
+require `--orientation` and `--swap-xy`; both values are appended so the later
+plot stage uses the same transformation. These options are rejected for all
+non-image steps, and plot fails if image has not stored them.
 
 ## 2. Shared Concepts
 
@@ -51,7 +67,7 @@ Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode an
 
 ### Orientation Parameters
 
-`image.sh` and `plot_cell_filtered.sh` share orientation controls:
+`image.sh` and `plot.sh` share orientation controls:
 
 The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
 or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
@@ -68,8 +84,8 @@ script/Quality_Control/mrna.sh
 
 ### 3.1 Preprocessing
 
-The shell script locates transcriptome FASTQ pairs from the configured
-`mrna_fastq_path`, then calls the preprocessing Python code under:
+The shell script locates transcriptome FASTQ pairs from the input path passed
+by `dbit.sh`, then calls the preprocessing Python code under:
 
 ```text
 script/Quality_Control/python/preprocessing/
@@ -176,7 +192,7 @@ Solo.out/GeneFull/raw/
 - `leiden`
 - `color`
 
-`data_cellfiltered.csv` is produced later by `plot_cell_filtered.sh` after merging image-derived cell counts with mRNA spot data.
+`data_cellfiltered.csv` is produced later by `plot.sh` after merging image-derived cell counts with mRNA spot data.
 
 ## 4. Image Workflow
 
@@ -217,7 +233,7 @@ image/
 └── split/
 ```
 
-`filtered_results.csv` is the image-derived table used by `plot_cell_filtered.sh`. It contains spot coordinates and predicted cell-count information.
+`filtered_results.csv` is the image-derived table used by `plot.sh`. It contains spot coordinates and predicted cell-count information.
 
 The image workflow uses the `image` Pixi environment because it depends on TensorFlow, StarDist, OpenCV, and related image packages.
 
@@ -229,7 +245,9 @@ Entry point:
 script/Quality_Control/amplicon.sh
 ```
 
-The amplicon workflow processes CA, RA, and TA DARLIN amplicon FASTQ files. The script infers the locus from sample names containing `CA`, `RA`, or `TA`.
+The amplicon workflow processes CA, RA, and TA DARLIN amplicon FASTQ files. The
+script infers the locus from sample names containing `CA`, `RA`, or `TA`, and
+accepts either `sample-CA` or `sample_CA` naming.
 
 ### 5.1 Preprocessing
 
@@ -299,14 +317,15 @@ amplicon/results/<sample_name>/<CA|RA|TA>/
 Entry point:
 
 ```text
-script/Quality_Control/plot_cell_filtered.sh
+script/Quality_Control/plot.sh
 ```
 
 This step combines image-derived cell count information with mRNA and/or amplicon spatial results.
 
-Inputs are set in the shared QC config:
+The primary input is passed on the command line; additional plotting paths are
+set in the shared QC config:
 
-- `cell_number_file`: usually `image/filtered_results.csv`
+- `cell_number_file`: appended to the dataset config by the image step; usually `image/filtered_results.csv`
 - `mrna_dir`: STARsolo `GeneFull` directory
 - `amp_dir`: amplicon result directory
 - `gray_path`: grayscale image for merged overlays

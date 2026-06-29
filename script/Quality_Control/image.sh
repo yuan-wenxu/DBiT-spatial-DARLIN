@@ -7,7 +7,7 @@ Usage: $0 <config_file>
 Process image and perform cell segmentation using StarDist.
 
 Arguments:
-  config_file   QC configuration containing image_path and parameters
+  config_file   Per-dataset QC configuration file
 
 Examples:
   $0 config.sh
@@ -31,6 +31,9 @@ pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
 pixel_length=${pixel_length:-0.294}
 if [[ -z ${image_path:-} ]]; then
     echo "Error: image_path must be set in the QC config." >&2; exit 1
+fi
+if [[ -z ${orientation:-} || -z ${swap_xy:-} ]]; then
+    echo "Error: orientation and swap_xy must be set by the image step." >&2; exit 1
 fi
 for variable in x_spots_number y_spots_number length_spot interval; do
     if [[ -z ${!variable:-} ]]; then

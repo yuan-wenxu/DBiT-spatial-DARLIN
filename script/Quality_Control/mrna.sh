@@ -7,7 +7,7 @@ Usage: $0 <config_file>
 Process mRNA sequencing data with preprocessing, STAR alignment, and quality control.
 
 Arguments:
-  config_file   QC configuration containing mrna_fastq_path and parameters
+  config_file   Per-dataset QC configuration file
 
 Examples:
   $0 config.sh
@@ -41,8 +41,11 @@ for variable in x_spots_number y_spots_number length_spot interval whitelist_pat
 done
 
 fastq_path=$mrna_fastq_path
-output_path=${mrna_output_path:-}
+output_path=${mrna_output_path}
 preprocess_cores=${mrna_cores}
+umi_min=${umi_min:-900}
+gene_min=${gene_min:-300}
+min_cells=${min_cells:-3}
 
 normalize_dir_path() {
     local path="$1"

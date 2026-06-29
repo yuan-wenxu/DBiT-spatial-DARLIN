@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-DBiT-spatial-DARLIN is a quality-control pipeline for DBiT spatial DARLIN data. The main user-facing entry points are shell scripts under `script/Quality_Control/`, with Python helpers under `script/Quality_Control/python/`. Clone analysis utilities live under `script/Clone_Analysis/`.
+DBiT-spatial-DARLIN is a quality-control pipeline for DBiT spatial DARLIN data. The main user-facing entry point is `script/dbit.sh`; worker scripts and Python helpers live under `script/Quality_Control/`. Clone analysis utilities live under `script/Clone_Analysis/`.
 
 Primary QC scripts:
 
-- `script/Quality_Control/dbit_mrna.sh`
+- `script/dbit.sh`
+- `script/Quality_Control/mrna.sh`
 - `script/Quality_Control/image.sh`
-- `script/Quality_Control/dbit_amplicon.sh`
-- `script/Quality_Control/plot_cell_filtered.sh`
+- `script/Quality_Control/amplicon.sh`
+- `script/Quality_Control/plot.sh`
 
 Detailed user workflow is documented in `README.md` and `docs/TECHNICAL_DOCUMENTATION.md`.
 

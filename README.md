@@ -42,13 +42,13 @@ Main script directories:
 
 ```text
 script/
+├── dbit.sh
+├── config.sh
 ├── Quality_Control/
-│   ├── dbit_mrna.sh
+│   ├── mrna.sh
 │   ├── image.sh
-│   ├── dbit_amplicon.sh
+│   ├── amplicon.sh
 │   ├── plot_cell_filtered.sh
-│   ├── dbit.sh
-│   ├── config.sh
 │   └── python/
 └── Clone_Analysis/
     ├── top_lr_pipeline.sh
@@ -79,12 +79,12 @@ Run commands from the repository root:
 cd /path/to/DBiT-spatial-DARLIN
 ```
 
-Copy `script/Quality_Control/config.sh`, then edit the path block at the top
+Copy `script/config.sh`, then edit the path block at the top
 and any pipeline parameters. Select `execution_mode=local` or
 `execution_mode=hpc` in that config and run:
 
 ```bash
-bash script/Quality_Control/dbit.sh mrna /path/to/config.sh --chip 50-20
+bash script/dbit.sh mrna /path/to/config.sh --chip 50-20
 ```
 
 The first argument selects exactly one step: `mrna`, `amplicon`, `image`, or
@@ -143,9 +143,9 @@ Use the same orientation settings for image splitting and filtered-plot merging 
 Use `-h` or `--help` for the full current interface:
 
 ```bash
-bash script/Quality_Control/dbit_mrna.sh -h
+bash script/Quality_Control/mrna.sh -h
 bash script/Quality_Control/image.sh -h
-bash script/Quality_Control/dbit_amplicon.sh -h
+bash script/Quality_Control/amplicon.sh -h
 bash script/Quality_Control/plot_cell_filtered.sh -h
 bash script/Clone_Analysis/top_lr_pipeline.sh -h
 ```

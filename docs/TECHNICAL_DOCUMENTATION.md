@@ -19,10 +19,10 @@ The repository contains two related workflows:
 Primary shell entry points:
 
 ```text
-script/Quality_Control/dbit.sh
-script/Quality_Control/dbit_mrna.sh
+script/dbit.sh
+script/Quality_Control/mrna.sh
 script/Quality_Control/image.sh
-script/Quality_Control/dbit_amplicon.sh
+script/Quality_Control/amplicon.sh
 script/Quality_Control/plot_cell_filtered.sh
 script/Clone_Analysis/top_lr_pipeline.sh
 ```
@@ -63,7 +63,7 @@ These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). T
 Entry point:
 
 ```text
-script/Quality_Control/dbit_mrna.sh
+script/Quality_Control/mrna.sh
 ```
 
 ### 3.1 Preprocessing
@@ -92,7 +92,7 @@ Important parameters:
 
 ### 3.2 STARsolo Alignment
 
-`dbit_mrna.sh` runs STAR with `GeneFull` solo features. Relevant STARsolo settings include:
+`mrna.sh` runs STAR with `GeneFull` solo features. Relevant STARsolo settings include:
 
 ```text
 --soloType CB_UMI_Simple
@@ -118,7 +118,7 @@ STAR outputs are written under:
 
 ### 3.3 mRNA QC and Clustering
 
-After STARsolo, `dbit_mrna.sh` calls:
+After STARsolo, `mrna.sh` calls:
 
 ```text
 script/Quality_Control/python/mrna.py
@@ -226,7 +226,7 @@ The image workflow uses the `image` Pixi environment because it depends on Tenso
 Entry point:
 
 ```text
-script/Quality_Control/dbit_amplicon.sh
+script/Quality_Control/amplicon.sh
 ```
 
 The amplicon workflow processes CA, RA, and TA DARLIN amplicon FASTQ files. The script infers the locus from sample names containing `CA`, `RA`, or `TA`.

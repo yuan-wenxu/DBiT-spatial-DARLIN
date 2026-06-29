@@ -2,8 +2,8 @@
 set -o pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
-QC_REPO_DIR=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1
-QC_SCRIPT_DIR=$SCRIPT_DIR
+QC_REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
+QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
 export QC_SCRIPT_DIR QC_REPO_DIR
 
 show_help() {
@@ -63,22 +63,22 @@ export chip x_spots_number y_spots_number length_spot interval whitelist_path
 
 case "$step" in
     mrna)
-        script="$SCRIPT_DIR/dbit_mrna.sh"
+        script="$QC_SCRIPT_DIR/mrna.sh"
         cpus=$sbatch_mrna_cpus; partition=$sbatch_mrna_partition
         memory=$sbatch_mrna_mem; walltime=$sbatch_mrna_time
         ;;
     amplicon)
-        script="$SCRIPT_DIR/dbit_amplicon.sh"
+        script="$QC_SCRIPT_DIR/amplicon.sh"
         cpus=$sbatch_amplicon_cpus; partition=$sbatch_amplicon_partition
         memory=$sbatch_amplicon_mem; walltime=$sbatch_amplicon_time
         ;;
     image)
-        script="$SCRIPT_DIR/image.sh"
+        script="$QC_SCRIPT_DIR/image.sh"
         cpus=$sbatch_image_cpus; partition=$sbatch_image_partition
         memory=$sbatch_image_mem; walltime=$sbatch_image_time
         ;;
     plot)
-        script="$SCRIPT_DIR/plot_cell_filtered.sh"
+        script="$QC_SCRIPT_DIR/plot_cell_filtered.sh"
         cpus=$sbatch_plot_cpus; partition=$sbatch_plot_partition
         memory=$sbatch_plot_mem; walltime=$sbatch_plot_time
         ;;

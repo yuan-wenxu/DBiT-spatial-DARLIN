@@ -1,77 +1,44 @@
 #!/bin/bash
-#SBATCH -J dbit_plot_qc
-#SBATCH -c 4
-#SBATCH -p amd-ep2,intel-sc3
-#SBATCH --mem=32G
-#SBATCH --time=04:00:00
-#SBATCH -o %x_%j.out
-#SBATCH -e %x_%j.err
-#SBATCH --requeue
 
-# Show help message
 show_help() {
     cat << EOF
-Usage: $0 -c <cell_number_file> [ -m <mrna_dir> ] [ -a <amp_dir> -w <whitelist> ] [OPTIONS]
+Usage: $0 <config_file>
 
 Plot filtered results (cell-filtered) for mRNA and/or amplicon data.
 
-Required Arguments:
-  -c, --cell_number_file <path>     Path to cell number file (e.g. filtered_results.csv)
-  
-Optional (at least one of the two groups below):
-  -m, --mrna_dir <path>             Path to mRNA results directory
-  -a, --amp_dir <path>              Path to amplicon results directory
-  -w, --whitelist <path>            Path to barcode whitelist file (required only when -a/--amp_dir is provided)
-  -g, --gray_path <path>            Path to gray image for merge (optional; default: gray.png next to cell_number_file)
-  --orientation <mode>              Transform filtered images before merging: normal, horizontal, vertical, rotate (default: normal)
-  --swap_xy                         Swap x and y axes after applying orientation before merging (optional)
+Arguments:
+  config_file   QC configuration containing plotting paths and parameters
 
-Spatial/Plot Options (passed to both mrna_cell.py and amp_cell.py):
-  --x_spots_number <num>            Number of spots in x direction (default: 50)
-  --y_spots_number <num>            Number of spots in y direction (default: 50)
-  --length_spot <num>               Length of each spot in pixels (default: 20)
-  --interval <num>                  Interval between spots in pixels (default: 20)
-  --pixel_length <float>            Length of each pixel in microns (default: 0.294)
-
-Orientation Notes:
-  normal                            Keep the coordinate system unchanged
-  horizontal                        Flip the coordinate system horizontally
-  vertical                          Flip the coordinate system vertically
-  rotate                            Rotate the coordinate system 180 degrees; equivalent to horizontal + vertical
-  --swap_xy                         Swap x and y coordinate axes after applying orientation
-  horizontal + --swap_xy            Rotate the coordinate system 90 degrees counterclockwise
-  vertical + --swap_xy              Rotate the coordinate system 90 degrees clockwise
-
-Pixi environment options:
-  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: default)
-  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
-
-Other Options:
-  -h, --help                        Show this help message and exit
 
 Examples:
-  # mRNA only
-  $0 -c filtered_results.csv -m /path/to/mrna/results
-
-  # Use a custom gray image for merge
-  $0 -c filtered_results.csv -m /path/to/mrna/results -g /path/to/gray.png
-
-  # Rotate filtered images before merging on gray
-  $0 -c filtered_results.csv -m /path/to/mrna/results -o rotate
-
-  # Both mRNA and amplicon
-  $0 -c filtered_results.csv -m /path/to/mrna/results -a /path/to/amp/results -w barcodes.tsv
-
+  $0 config.sh
 EOF
 }
 
-# Set default values (order matches the help message)
-
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
-whitelist_path="$SCRIPT_DIR/../../docs/barcodes/barcodes.tsv"
-pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
+if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+config_file=$1
+if [[ ! -f "$config_file" ]]; then
+    echo "Error: config file not found: $config_file" >&2; exit 1
+fi
+# shellcheck disable=SC1090
+source "$config_file"
+pixi_env=${pixi_env:-default}
+pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
+if [[ -z ${cell_number_file:-} ]]; then
+    echo "Error: cell_number_file must be set in the QC config." >&2; exit 1
+fi
+for variable in x_spots_number y_spots_number length_spot interval; do
+    if [[ -z ${!variable:-} ]]; then
+        echo "Run this script through dbit.sh so --chip is resolved." >&2
+        exit 1
+    fi
+done
 
 normalize_dir_path() {
     local path="$1"
@@ -102,80 +69,13 @@ merge_with_gray() {
     fi
 }
 
-# Spatial/Plot Options
-x_spots_number=${x_spots_number:-50}
-y_spots_number=${y_spots_number:-50}
-length_spot=${length_spot:-20}
-interval=${interval:-20}
-pixel_length=${pixel_length:-0.294}
-orientation=${orientation:-normal}
-swap_xy=${swap_xy:-False}
-pixi_env=${pixi_env:-default}
-
-# Parse only short options with getopts; stop on --/long options to avoid getopts treating "--" as invalid.
-short_args=()
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --*) break ;;
-        *) short_args+=("$1"); shift ;;
-    esac
-done
-long_args=("$@")
-
-# Parse short options
-set -- "${short_args[@]}"
-OPTIND=1
-while getopts "c:m:a:w:g:h" opt; do
-    case $opt in
-        c) cell_number_file=$OPTARG ;;
-        m) mrna_dir=$OPTARG ;;
-        a) amp_dir=$OPTARG ;;
-        w) whitelist_path=$OPTARG ;;
-        g) gray_path=$OPTARG ;;
-        h) show_help; exit 0 ;;
-        ?) echo "Invalid option: -$OPTARG" >&2
-            echo "Use -h or --help for usage information" >&2
-            exit 1 ;;
-    esac
-done
-
-# Parse long options
-set -- "${long_args[@]}"
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --cell_number_file) cell_number_file=$2; shift 2 ;;
-        --mrna_dir) mrna_dir=$2; shift 2 ;;
-        --amp_dir) amp_dir=$2; shift 2 ;;
-        --whitelist) whitelist_path=$2; shift 2 ;;
-        --gray_path) gray_path=$2; shift 2 ;;
-        --orientation) orientation=$2; shift 2 ;;
-        --swap_xy) swap_xy=True; shift ;;
-        --x_spots_number) x_spots_number=$2; shift 2 ;;
-        --y_spots_number) y_spots_number=$2; shift 2 ;;
-        --length_spot) length_spot=$2; shift 2 ;;
-        --interval) interval=$2; shift 2 ;;
-        --pixel_length) pixel_length=$2; shift 2 ;;
-        --pixi_env) pixi_env=$2; shift 2 ;;
-        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
-        --help) show_help; exit 0 ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
-    esac
-done
-
-# Validate required arguments: cell_number_file is required, and at least one data directory must be provided.
-if [ -z "$cell_number_file" ]; then
-    echo "Error: -c (cell_number_file) is required" >&2
-    echo "Use -h or --help for usage information" >&2
-    exit 1
-fi
+# Validate inputs
 if [ -z "$mrna_dir" ] && [ -z "$amp_dir" ]; then
-    echo "Error: at least one of -m (mrna_dir) or -a (amp_dir) must be specified" >&2
-    echo "Use -h or --help for usage information" >&2
+    echo "Error: at least one of mrna_dir or amp_dir must be set in config" >&2
     exit 1
 fi
 if [ -n "$amp_dir" ] && [ -z "$whitelist_path" ]; then
-    echo "Error: -w (whitelist) is required when -a (amp_dir) is specified" >&2
-    echo "Use -h or --help for usage information" >&2
+    echo "Error: whitelist_path is required when amp_dir is set" >&2
     exit 1
 fi
 
@@ -195,7 +95,7 @@ case "$orientation" in
     normal|horizontal|vertical|rotate)
         ;;
     *)
-        echo "Error: -o/--orientation must be one of normal, horizontal, vertical, rotate" >&2
+        echo "Error: orientation must be one of normal, horizontal, vertical, rotate" >&2
         exit 1
         ;;
 esac
@@ -205,7 +105,7 @@ if [[ ! -d "$pixi_env_dir" ]]; then
     exit 1
 fi
 
-# mRNA cell-filtered plot (only when -m is provided)
+# mRNA cell-filtered plot (only when mrna_dir is provided)
 if [ -n "$mrna_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
@@ -217,11 +117,11 @@ if [ -n "$mrna_dir" ]; then
             --length_spot "$length_spot" \
             --interval "$interval" \
             --pixel_length "$pixel_length"
-    ) &> "$mrna_dir/filtered_plot.log"
-    merge_with_gray "$mrna_dir"
+    ) &> "$mrna_dir/filtered_plot.log" || exit 1
+    merge_with_gray "$mrna_dir" || exit 1
 fi
 
-# Amplicon cell-filtered plot (only when -a is provided)
+# Amplicon cell-filtered plot (only when amp_dir is provided)
 if [ -n "$amp_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
@@ -234,6 +134,6 @@ if [ -n "$amp_dir" ]; then
             --length_spot "$length_spot" \
             --interval "$interval" \
             --pixel_length "$pixel_length"
-    ) &> "$amp_dir/filtered_plot.log"
-    merge_with_gray "$amp_dir"
+    ) &> "$amp_dir/filtered_plot.log" || exit 1
+    merge_with_gray "$amp_dir" || exit 1
 fi

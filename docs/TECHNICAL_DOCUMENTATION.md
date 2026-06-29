@@ -19,6 +19,7 @@ The repository contains two related workflows:
 Primary shell entry points:
 
 ```text
+script/Quality_Control/dbit.sh
 script/Quality_Control/dbit_mrna.sh
 script/Quality_Control/image.sh
 script/Quality_Control/dbit_amplicon.sh
@@ -26,7 +27,11 @@ script/Quality_Control/plot_cell_filtered.sh
 script/Clone_Analysis/top_lr_pipeline.sh
 ```
 
-All shell entry points run Python modules through `pixi run -e <env>`.
+`dbit.sh` is the single-step local/SLURM launcher. Its first argument selects
+`mrna`, `amplicon`, `image`, or `plot`, and `--chip` accepts `50-50`, `50-20`,
+or `100-20`. Chip dimensions and whitelist selection are defined only in that
+launcher and exported to the selected worker job. All shell entry points run
+Python modules through `pixi run -e <env>`.
 
 ## 2. Shared Concepts
 
@@ -48,13 +53,8 @@ Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode an
 
 `image.sh` and `plot_cell_filtered.sh` share orientation controls:
 
-```text
---orientation normal
---orientation horizontal
---orientation vertical
---orientation rotate
---swap_xy
-```
+The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
+or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
 
 These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis plotting script uses its own `--rotate <0|90|180|270>` option because it transforms spot coordinates directly rather than transforming merged image overlays.
 
@@ -68,7 +68,8 @@ script/Quality_Control/dbit_mrna.sh
 
 ### 3.1 Preprocessing
 
-The shell script locates transcriptome FASTQ pairs from `--fastq_path`, then calls the preprocessing Python code under:
+The shell script locates transcriptome FASTQ pairs from the configured
+`mrna_fastq_path`, then calls the preprocessing Python code under:
 
 ```text
 script/Quality_Control/python/preprocessing/
@@ -83,11 +84,11 @@ Main operations:
 
 Important parameters:
 
-- `--linker1`, `--linker2`: expected linker sequences.
-- `--mm_rate`: mismatch rate for linker matching.
-- `--bc_max_dist`: maximum barcode correction distance.
-- `--gzip_output`: whether preprocessing output is gzipped immediately.
-- `--gzip_after_preprocess`: whether uncompressed preprocessing output is compressed after extraction.
+- `linker1`, `linker2`: expected linker sequences.
+- `mm_rate`: mismatch rate for linker matching.
+- `bc_max_dist`: maximum barcode correction distance.
+- `gzip_output`: whether preprocessing output is gzipped immediately.
+- `gzip_after_preprocess`: whether uncompressed preprocessing output is compressed after extraction.
 
 ### 3.2 STARsolo Alignment
 
@@ -236,16 +237,16 @@ Main operations:
 
 1. Optionally run cutadapt.
 2. Extract spatial barcode and UMI.
-3. Extract DARLIN lineage barcode sequence when `--darlin True`.
+3. Treat the DARLIN lineage barcode sequence as complete when `cutadapt=True`.
 4. Write barcode-matched FASTQs.
 
 Important preprocessing parameters:
 
-- `--cutadapt`: whether to trim reads before extraction.
-- `--cores`: parallelism for cutadapt and barcode extraction.
-- `--base_quality`: base-quality threshold.
-- `--linker1`, `--linker2`, `--mm_rate`: linker matching.
-- `--gzip_output`, `--gzip_after_preprocess`: output compression behavior.
+- `cutadapt`: whether to trim reads before extraction.
+- `amp_cores`: parallelism for cutadapt and barcode extraction.
+- `base_quality`: base-quality threshold.
+- `linker1`, `linker2`, `mm_rate`: linker matching.
+- `gzip_output`, `gzip_after_preprocess`: output compression behavior.
 
 ### 5.2 DARLIN Correction
 
@@ -303,13 +304,13 @@ script/Quality_Control/plot_cell_filtered.sh
 
 This step combines image-derived cell count information with mRNA and/or amplicon spatial results.
 
-Inputs:
+Inputs are set in the shared QC config:
 
-- `-c, --cell_number_file`: usually `image/filtered_results.csv`
-- `-m, --mrna_dir`: STARsolo `GeneFull` directory
-- `-a, --amp_dir`: amplicon result directory
-- `-w, --whitelist`: barcode whitelist, required for amplicon plotting
-- `-g, --gray_path`: grayscale image for merged overlays
+- `cell_number_file`: usually `image/filtered_results.csv`
+- `mrna_dir`: STARsolo `GeneFull` directory
+- `amp_dir`: amplicon result directory
+- `gray_path`: grayscale image for merged overlays
+- the barcode whitelist is selected automatically by the chip argument
 
 For mRNA data, the script calls:
 

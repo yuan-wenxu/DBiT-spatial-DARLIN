@@ -1,110 +1,45 @@
 #!/bin/bash
-#SBATCH -J dbit_amplicon_qc
-#SBATCH -c 8
-#SBATCH -p amd-ep2,intel-sc3
-#SBATCH --mem=64G
-#SBATCH --time=24:00:00
-#SBATCH -o %x_%j.out
-#SBATCH -e %x_%j.err
-#SBATCH --requeue
 
-# Show help message
 show_help() {
     cat << EOF
-Usage: $0 -f <fastq_path> [-o <output_path>] [OPTIONS]
+Usage: $0 <config_file>
 
 Process amplification sequencing data with preprocessing, DARLIN correction, and visualization.
 
-Required Arguments:
-  -f, --fastq_path <dir>            Directory containing R1/R2 fastq files
-
-Output Options:
-  -o, --output_path <dir>           Output directory path (optional; default: parent directory of fastq_path)
-
-Preprocessing Options:
-  -w, --whitelist <path>            Path to barcode whitelist file
-  -c, --cutadapt <bool>             Perform cutadapt trimming (True/False) (default: True)
-
-  Advanced options:
-    --cores <num>                     Number of cores for cutadapt and barcode extraction (default: 8)
-    --preprocess_batch_size <num>     Read pairs per barcode extraction worker batch (default: 50000)
-    --base_quality <num>              Base quality score threshold (default: 10)
-    --compression_level <num>         Compression level for gzip barcode FASTQ output (default: 6)
-    --gzip_output <bool>              Gzip barcode FASTQ output (default: false). false uses more disk space but can speed up preprocessing.
-    --gzip_after_preprocess <bool>    If gzip_output is false, compress barcode FASTQs after preprocessing with pigz/gzip (default: true)
-    --linker1 <seq>                   Linker 1 sequence (default: GTGGCCGATGTTTCGCATCGGCGTACGACT)
-    --linker2 <seq>                   Linker 2 sequence (default: ATCCACGTGCTTGAGAGGCCAGAGCATTCG)
-    --mm_rate <float>                 Mismatch rate for linker sequences (default: 0.05)
-    --scratch <path>                  Path to scratch directory for intermediate files (optional)
-
-DARLIN Correction Options:
-  --darlin <bool>                    Whether lineage barcode sequences are available (default: True)
-  --sb_len <num>                     Length of concatenated spot barcode (default: 16)
-  --ub_len <num>                     Length of UMI barcode (default: 10)
-  --umi_hd_threshold <num>           Hamming-distance threshold for UMI correction within each SR (default: 1)
-  --min_lb_len <num>                 Minimum lineage barcode length (default: 20)
-  --initial_reads_cutoff <num>       Minimum reads per raw LB/SB/UB molecule (default: 100)
-  --lb_error_rate <float>            Lineage barcode correction error rate (default: 0.01)
-  --lb_min_hd <num>                  Minimum HD threshold for lineage barcode correction (default: 1)
-  --major_fraction_threshold <float> Minimum major LR fraction per SR/UR (default: 0.8)
-  --reads_fraction_mode <sum|max>    Denominator for major LR filtering (default: sum)
-  --reads_cutoff <num>               Minimum reads per final SR/UR/LR row (default: 10)
-  --slope_cutoff <num>               Minimum reads/UMIs per SR (default: 10)
-
-Pixi environment options:
-  --pixi_env <name>                   Name of the Pixi environment to use (optional; default: default)
-  --pixi_env_dir <path>               Directory containing pixi.toml (optional; default: repository root)
-
-Other Options:
-  -h, --help                        Show this help message and exit
+Arguments:
+  config_file   QC configuration containing amplicon_fastq_path and parameters
 
 Examples:
-  # Basic usage
-  $0 -f /path/to/fastq -c True
-
-  # Write results to a different directory
-  $0 -f /path/to/fastq -o /path/to/output -c True
-
+  $0 config.sh
 EOF
 }
 
-# Set default values
-# Preprocessing Options
-cutadapt=${cutadapt:-True}
-
-# Preprocessing Advanced options
-cores=${cores:-8}
-preprocess_batch_size=${preprocess_batch_size:-50000}
-base_quality=${base_quality:-10}
-compression_level=${compression_level:-6}
-gzip_output=${gzip_output:-false}
-gzip_after_preprocess=${gzip_after_preprocess:-true}
-linker1=${linker1:-GTGGCCGATGTTTCGCATCGGCGTACGACT}
-linker2=${linker2:-ATCCACGTGCTTGAGAGGCCAGAGCATTCG}
-mm_rate=${mm_rate:-0.05}
-scratch=${scratch:-}
-
-# DARLIN Correction Options
-darlin=${darlin:-True}
-sb_len=${sb_len:-16}
-ub_len=${ub_len:-10}
-umi_hd_threshold=${umi_hd_threshold:-1}
-min_lb_len=${min_lb_len:-20}
-initial_reads_cutoff=${initial_reads_cutoff:-100}
-lb_error_rate=${lb_error_rate:-0.01}
-lb_min_hd=${lb_min_hd:-1}
-major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
-reads_fraction_mode=${reads_fraction_mode:-sum}
-reads_cutoff=${reads_cutoff:-10}
-slope_cutoff=${slope_cutoff:-10}
-
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
-whitelist_path="$SCRIPT_DIR/../../docs/barcodes/barcodes.tsv"
 
-# Pixi environment options
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
+if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+config_file=$1
+if [[ ! -f "$config_file" ]]; then
+    echo "Error: config file not found: $config_file" >&2; exit 1
+fi
+# shellcheck disable=SC1090
+source "$config_file"
 pixi_env=${pixi_env:-default}
-pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
+pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
+if [[ -z ${amplicon_fastq_path:-} ]]; then
+    echo "Error: amplicon_fastq_path must be set in the QC config." >&2; exit 1
+fi
+if [[ -z ${whitelist_path:-} ]]; then
+    echo "Run this script through dbit.sh so --chip is resolved." >&2
+    exit 1
+fi
+
+fastq_path=$amplicon_fastq_path
+output_path=${amplicon_output_path:-}
+cores=${amp_cores}
+cutadapt=${cutadapt}
 
 normalize_dir_path() {
     local path="$1"
@@ -132,89 +67,14 @@ compress_fastq_file() {
     fi
 }
 
-# Short options
-short_args=()
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --*) break ;;
-        *) short_args+=("$1"); shift ;;
-    esac
-done
-long_args=("$@")
-
-set -- "${short_args[@]}"
-OPTIND=1
-
-while getopts "f:o:w:c:h" opt; do
-    case $opt in
-        f) fastq_path=$OPTARG ;;
-        o) output_path=$OPTARG ;;
-        w) whitelist_path=$OPTARG ;;
-        c) cutadapt=$OPTARG  ;;
-        h) show_help; exit 0 ;;
-        ?) echo "Invalid option: -$OPTARG" >&2
-            echo "Use -h or --help for usage information" >&2
-            exit 1 ;;
-    esac
-done
-
-# Long options
-set -- "${long_args[@]}"
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        # Required Arguments
-        --fastq_path) fastq_path=$2; shift 2 ;;
-        # Output Options
-        --output_path) output_path=$2; shift 2 ;;
-        # Preprocessing Options
-        --whitelist) whitelist_path=$2; shift 2 ;;
-        --cutadapt) cutadapt=$2; shift 2 ;;
-        # Preprocessing Advanced options
-        --cores) cores=$2; shift 2 ;;
-        --preprocess_batch_size) preprocess_batch_size=$2; shift 2 ;;
-        --base_quality) base_quality=$2; shift 2 ;;
-        --compression_level) compression_level=$2; shift 2 ;;
-        --gzip_output) gzip_output=$2; shift 2 ;;
-        --gzip_after_preprocess) gzip_after_preprocess=$2; shift 2 ;;
-        --linker1) linker1=$2; shift 2 ;;
-        --linker2) linker2=$2; shift 2 ;;
-        --mm_rate) mm_rate=$2; shift 2 ;;
-        --scratch) scratch=$2; shift 2 ;;
-        # DARLIN Correction Options
-        --darlin) darlin=$2; shift 2 ;;
-        --sb_len) sb_len=$2; shift 2 ;;
-        --ub_len) ub_len=$2; shift 2 ;;
-        --umi_hd_threshold) umi_hd_threshold=$2; shift 2 ;;
-        --min_lb_len) min_lb_len=$2; shift 2 ;;
-        --initial_reads_cutoff) initial_reads_cutoff=$2; shift 2 ;;
-        --lb_error_rate) lb_error_rate=$2; shift 2 ;;
-        --lb_min_hd) lb_min_hd=$2; shift 2 ;;
-        --major_fraction_threshold_molecule) major_fraction_threshold_molecule=$2; shift 2 ;;
-        --reads_fraction_mode) reads_fraction_mode=$2; shift 2 ;;
-        --reads_cutoff) reads_cutoff=$2; shift 2 ;;
-        --slope_cutoff) slope_cutoff=$2; shift 2 ;;
-        --pixi_env) pixi_env=$2; shift 2 ;;
-        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
-        --help) show_help; exit 0 ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
-    esac
-done
-
-# Check required arguments
-if [ -z "$fastq_path" ]; then
-    echo "Error: -f (fastq_path) is required" >&2
-    echo "Use -h or --help for usage information" >&2
-    exit 1
-fi
-
+# Validate inputs
 if [ -z "$whitelist_path" ]; then
-    echo "Error: -w (whitelist) is required" >&2
-    echo "Use -h or --help for usage information" >&2
+    echo "Error: whitelist_path is required in config" >&2
     exit 1
 fi
 
 if [[ "$reads_fraction_mode" != "sum" && "$reads_fraction_mode" != "max" ]]; then
-    echo "Error: --reads_fraction_mode must be 'sum' or 'max'" >&2
+    echo "Error: reads_fraction_mode must be 'sum' or 'max'" >&2
     exit 1
 fi
 
@@ -243,8 +103,8 @@ fi
 mkdir -p "$output_path"
 
 if [ -n "$scratch" ]; then
-    scratch_input="$scratch/amp/input"
-    scratch_output="$scratch/amp/output"
+    scratch_input="$scratch/amplicon/input"
+    scratch_output="$scratch/amplicon/output"
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"
@@ -258,7 +118,6 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     [ -e "$r1" ] || { echo "Error: no *_R1.fq.gz files found in $file_path" >&2; exit 1; }
     sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
     locus=$(echo "$sample_name" | grep -oE 'CA|RA|TA')
-    #locus=${sample_name: -2}
     r2=$file_path/$sample_name"_R2.fq.gz"
     nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\)//')
 
@@ -287,7 +146,10 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         -cl "$compression_level" -cut "$cutadapt" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
         -go "$gzip_output" \
-        -cb "false" &> "$output_path/${sample_name}_preprocess.log"
+        -cb "false" &> "$output_path/${sample_name}_preprocess.log" || {
+            echo "Error: preprocessing failed for $sample_name; see $output_path/${sample_name}_preprocess.log" >&2
+            exit 1
+        }
 
     tmp_path=$(tail -n 1 $output_path/${sample_name}_preprocess.log)
 
@@ -302,7 +164,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     run_pixi python "$PYTHON_DIR/amplicon.py" \
         -bu "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
         -dr "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
-        -o "$results" -d "$darlin" \
+        -o "$results" -d "$cutadapt" \
         --whitelist "$whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \
@@ -314,15 +176,18 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --major-fraction-threshold-molecule "$major_fraction_threshold_molecule" \
         --reads-fraction-mode "$reads_fraction_mode" \
         --final-reads-cutoff "$reads_cutoff" \
-        --slope-cutoff "$slope_cutoff" &> "$results/dbit.log"
+        --slope-cutoff "$slope_cutoff" &> "$results/dbit.log" || {
+            echo "Error: amplicon analysis failed for $sample_name; see $results/dbit.log" >&2
+            exit 1
+        }
 
     run_pixi python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \
         -w "$whitelist_path" \
-        -o "$results"
+        -o "$results" || exit 1
 done
 
 if [ -n "$scratch" ]; then
     cp -r "$scratch_output"/* "$orig_output_path"/
-    rm -rf "$scratch/amp"
+    rm -rf "$scratch/amplicon"
 fi

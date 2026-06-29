@@ -185,3 +185,4 @@ cython_debug/
 .pixi/*
 !.pixi/config.toml
 path.txt
+my_config.sh

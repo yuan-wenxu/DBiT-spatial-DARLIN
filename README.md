@@ -161,7 +161,7 @@ paths and orientation settings from the dataset config, so it needs no input:
 dbit plot --config /path/to/config.sh
 ```
 
-The recommended order is `mrna → image → amplicon → plot`. For `mrna`,
+The recommended order is `mrna → image → amplicon → plot → clone`. For `mrna`,
 `image`, and `amplicon`, the first `--input` value and its derived result paths
 are stored in the dataset config. Later runs may omit `--input` to reuse the
 stored step-specific path, or supply a new path to override it.
@@ -185,17 +185,20 @@ job. Chip presets are not duplicated in the config or worker scripts.
 ### Clone Analysis
 
 ```bash
-bash Clone_Analysis/top_lr_pipeline.sh \
-    -i /path/to/sample_name/amplicon/results/sample_name \
-    -b /path/to/allele_bank \
-    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull/raw/data_tissuefiltered.csv
+dbit clone \
+    --config /path/to/config.sh \
+    --bank-dir /path/to/allele_bank
 ```
+
+By default, `dbit clone` reads its clone input from the stored `amp_dir` and
+its Leiden background from `<mrna_dir>/raw/data_tissuefiltered.csv`. The first
+`--bank-dir` value is stored in the dataset config, so later runs can use only
+`dbit clone --config /path/to/config.sh`.
 
 This workflow:
 
-1. splits clone calls by whether `n_LR > predicted cell count`;
-2. filters LR sequences against label-specific allele-bank files;
-3. plots the top LR clones on the mRNA Leiden cluster background.
+1. filters LR sequences against label-specific allele-bank files;
+2. plots the top LR clones on the mRNA Leiden cluster background.
 
 ## 4. Orientation
 
@@ -218,7 +221,7 @@ Common meanings:
 
 Use the same orientation settings for image splitting and filtered-plot merging whenever possible. See [ORIENTATION.md](docs/ORIENTATION.md) for schematic examples.
 
-`top_lr_plot.py` has its own `--rotate <0|90|180|270>` option because the clone-analysis plot orientation is handled separately from image merging.
+Clone analysis reads `orientation` and `swap_xy` from the dataset config (set by the image step), matching the QC pipeline conventions.
 
 ## 5. Script Interfaces
 
@@ -230,30 +233,26 @@ dbit mrna -h
 dbit amplicon -h
 dbit image -h
 dbit plot -h
-bash Clone_Analysis/top_lr_pipeline.sh -h
+dbit clone -h
 ```
 
 Use `dbit <step> --config <file> [--input <path>] [--chip <name>]` for data
 steps; `--input` is required only before that step has stored one. Use
 `dbit plot --config <file> [--chip <name>]` for plotting.
+Use `dbit clone --config <file> [options]` for clone analysis; it does not
+require a chip setting.
 Use `dbit <step> -h` for step-specific command-line parameters; base
 pipeline and SLURM settings are documented inline in the config template.
 
 ### `top_lr_pipeline.sh`
 
-Required:
+The standalone pipeline script takes a single config file argument:
 
-- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `tissuefiltered.csv`
-- `-b, --bank-dir <dir>`: directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
-- `--cluster-csv <path>`: mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
+```bash
+Clone_Analysis/top_lr_pipeline.sh /path/to/config.sh
+```
 
-Common options:
-
-- `--labels <label...>`: labels to process; default `CA RA TA`
-- `--output-dir <dir>`: output directory; default is `input-dir`
-- `--min-sequence-length <num>`: minimum sequence length passed to DARLIN allele analysis; default `20`
-- `--top-n <num>`: number of top LR plots per label; default `10`
-- `--rotate <0|90|180|270>`: rotate top LR plots; default `0`
+All parameters are read from the config file. See `Clone_Analysis/top_lr_pipeline.sh -h` for details.
 
 ## 6. Outputs
 

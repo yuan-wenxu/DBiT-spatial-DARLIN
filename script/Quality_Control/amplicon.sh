@@ -24,7 +24,7 @@ config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2; exit 1
 fi
-# shellcheck disable=SC1090
+
 source "$config_file"
 pixi_env=${pixi_env:-default}
 pixi_env_dir=${pixi_env_dir:-$REPO_DIR}

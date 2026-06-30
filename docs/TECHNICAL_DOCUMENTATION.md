@@ -12,7 +12,6 @@ The repository contains two related workflows:
    - DARLIN amplicon FASTQ processing and spatial clone-call QC
    - tissue-filtered visualization and optional image merging
 2. Clone analysis:
-   - split clone calls by predicted cell count
    - filter LR sequences against allele-bank definitions
    - plot the top LR clones on the mRNA Leiden cluster background
 
@@ -31,7 +30,9 @@ script/Clone_Analysis/top_lr_pipeline.sh
 `image`, it receives an input path through `--input` and appends that input plus
 derived result paths to the per-dataset config. Later runs may omit `--input`
 and reuse the path stored for that step. The final `plot` step runs after image,
-reads those accumulated paths, and therefore needs no separate input. `--chip`
+reads those accumulated paths, and therefore needs no separate input. The
+`clone` step runs `top_lr_pipeline.sh`, defaults to the stored `amp_dir` and
+`mrna_dir`, and stores command-line overrides for reuse. `--chip`
 accepts `50-50`, `50-20`, or
 `100-20`. Chip dimensions and whitelist selection are defined only in that
 launcher and exported to the selected worker job. All shell entry points run
@@ -51,6 +52,11 @@ require `--orientation` and `--swap-xy` only when the corresponding values are
 not already stored; command-line values are appended so later image and plot
 runs use the same transformation. These options are rejected for all non-image
 steps, and plot fails if image has not stored them.
+
+Clone analysis is also available through `dbit clone`. Like the QC plot step, it
+sources the config file and reads all parameters from it, including `clone_labels`
+and `clone_top_n`. The launcher uses the `default`
+Pixi environment and the clone SLURM settings from the config.
 
 ## 2. Shared Concepts
 
@@ -75,7 +81,7 @@ Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode an
 The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
 or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
 
-These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis plotting script uses its own `--rotate <0|90|180|270>` option because it transforms spot coordinates directly rather than transforming merged image overlays.
+These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis pipeline reads `orientation` and `swap_xy` from the same shared config, matching the QC pipeline conventions.
 
 ## 3. Transcriptome Workflow
 
@@ -394,10 +400,12 @@ When `gray.png` is available, `merge_on_gray.py` transforms each `*_filtered.png
 Entry point:
 
 ```text
+script/dbit.sh clone
 script/Clone_Analysis/top_lr_pipeline.sh
 ```
 
-The clone-analysis workflow expects the amplicon tissue-filtered outputs:
+The clone-analysis workflow reads its parameters from the config file set by
+earlier steps. It expects the amplicon tissue-filtered outputs (from `amp_dir`):
 
 ```text
 <input_dir>/
@@ -406,38 +414,12 @@ The clone-analysis workflow expects the amplicon tissue-filtered outputs:
 └── TA/tissuefiltered.csv
 ```
 
-It also requires:
+It also requires (from `bank_dir` and `cluster_csv` in config):
 
 - an allele-bank directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
 - an mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
 
-### 7.1 Cell Count Split
-
-Implemented in:
-
-```text
-script/Clone_Analysis/python/cellcount_filter.py
-```
-
-For each SR spot:
-
-1. Count unique LR values in the spot.
-2. Read the predicted image-derived cell count from the `count` column.
-3. Assign the spot to:
-   - `n_LR_gt_count` if unique LR count is greater than predicted cell count
-   - `n_LR_le_count` otherwise
-
-Outputs per label:
-
-```text
-tissuefiltered.n_LR_gt_count.csv
-tissuefiltered.n_LR_le_count.csv
-tissuefiltered.count_summary.txt
-```
-
-This step no longer makes spatial plots. It only writes tables and summaries.
-
-### 7.2 Allele-Bank Filter
+### 7.1 Allele-Bank Filter
 
 Implemented in:
 
@@ -467,7 +449,7 @@ Output per label:
 tissuefiltered.bank_filtered.csv
 ```
 
-### 7.3 Top LR Spatial Plot
+### 7.2 Top LR Spatial Plot
 
 Implemented in:
 
@@ -483,7 +465,7 @@ The plotter:
    - number of unique UR values
    - total read support
    - LR sequence
-3. Selects the top `--top-n` LR clones.
+3. Selects the top `clone_top_n` LR clones.
 4. Draws a Leiden cluster background from the mRNA cluster CSV.
 5. Overlays hollow circles on spots containing the selected LR.
 6. Sizes circles by unique UR count:
@@ -494,7 +476,7 @@ The plotter:
 Plot details:
 
 - `--cluster-alpha` controls both Leiden background opacity and the cluster legend opacity.
-- `--rotate <0|90|180|270>` rotates spot coordinates for clone-analysis plots.
+- `--orientation <mode>` and `--swap-xy` control spot coordinate orientation, matching the QC pipeline conventions.
 - Titles are formatted into a fixed-height area so output PNG dimensions stay constant.
 - Edge padding and unclipped LR circles are used so boundary circles are not cut off.
 

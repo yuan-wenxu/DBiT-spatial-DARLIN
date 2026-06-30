@@ -5,8 +5,9 @@ SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}") || exit 1
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd) || exit 1
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
+LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
 PROGRAM_NAME=$(basename "$0")
-export QC_SCRIPT_DIR REPO_DIR
+export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR
 
 show_help() {
     cat <<EOF
@@ -16,7 +17,8 @@ Steps:
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
   amplicon      Process DARLIN amplicon FASTQs
   image         Segment a registered image and count cells
-  plot          Final step: generate tissue-filtered plots after image
+  plot          Generate tissue-filtered plots after image
+  clone         Filter and plot clone-analysis results
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
 EOF
@@ -88,12 +90,26 @@ Optional:
 EOF
 }
 
+show_clone_help() {
+    cat <<EOF
+Usage: $PROGRAM_NAME clone --config <file> [options]
+
+Required:
+  --config <file>     Configuration populated by earlier data steps
+
+Optional:
+  --labels <list>     Comma-separated labels (default: CA,RA,TA)
+  --top-n <int>       Positive number of LR plots per label (default: 10)
+EOF
+}
+
 show_step_help() {
     case "$1" in
         mrna) show_mrna_help ;;
         amplicon) show_amplicon_help ;;
         image) show_image_help ;;
         plot) show_plot_help ;;
+        clone) show_clone_help ;;
     esac
 }
 
@@ -102,16 +118,16 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        mrna|amplicon|image|plot) show_step_help "$step"; exit 0 ;;
+        mrna|amplicon|image|plot|clone) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    mrna|amplicon|image|plot) ;;
+    mrna|amplicon|image|plot|clone) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: mrna, amplicon, image, plot." >&2
+        echo "Valid steps: mrna, amplicon, image, plot, clone." >&2
         exit 1
         ;;
 esac
@@ -132,6 +148,8 @@ cli_reads_cutoff=""
 cli_slope_cutoff=""
 cli_orientation=""
 cli_swap_xy=""
+cli_clone_labels=""
+cli_top_n=""
 
 require_option_value() {
     if [[ $# -lt 2 || $2 == --* ]]; then
@@ -156,6 +174,8 @@ while [[ $# -gt 0 ]]; do
         --slope-cutoff) require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
         --orientation) require_option_value "$@"; cli_orientation=$2; shift 2 ;;
         --swap-xy) require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
+        --labels) require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
+        --top-n) require_option_value "$@"; cli_top_n=$2; shift 2 ;;
         -h|--help) show_step_help "$step"; exit 0 ;;
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
@@ -217,6 +237,10 @@ if [[ "$step" != image && ( -n "$cli_orientation" || -n "$cli_swap_xy" ) ]]; the
     echo "Error: --orientation and --swap-xy can only be used with the image step." >&2
     exit 1
 fi
+if [[ "$step" != clone && ( -n "$cli_clone_labels" || -n "$cli_top_n" ) ]]; then
+    echo "Error: --labels and --top-n can only be used with the clone step." >&2
+    exit 1
+fi
 if [[ "$step" == plot && -n "$input_path" ]]; then
     echo "Error: --input cannot be used with the plot step; paths are read from the config." >&2
     exit 1
@@ -229,6 +253,7 @@ validate_nonnegative_integer --initial-reads-cutoff "$cli_initial_reads_cutoff"
 validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_threshold_molecule"
 validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
 validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
+validate_positive_integer --top-n "$cli_top_n"
 if [[ -n "$cli_reads_fraction_mode" ]]; then
     case "$cli_reads_fraction_mode" in
         sum|max) ;;
@@ -256,12 +281,12 @@ set_config_value() {
 }
 
 if ! $chip_from_cli; then selected_chip=${chip:-}; fi
-if [[ -z "$selected_chip" ]]; then
+if [[ "$step" != clone && -z "$selected_chip" ]]; then
     echo "Error: --chip is required the first time; no chip is stored in $config_abs." >&2
     exit 1
 fi
 case "$selected_chip" in
-    50-50|50-20|100-20) ;;
+    50-50|50-20|100-20|"") ;;
     *)
         echo "Error: unsupported chip '$selected_chip'." >&2
         echo "Valid chips: 50-50, 50-20, 100-20." >&2
@@ -274,9 +299,10 @@ if [[ "$step" != plot && -z "$input_path" ]]; then
         mrna) input_path=${mrna_fastq_path:-} ;;
         amplicon) input_path=${amplicon_fastq_path:-} ;;
         image) input_path=${image_path:-} ;;
+        clone) input_path=${amp_dir} ;;
     esac
 fi
-if [[ "$step" != plot && -z "$input_path" ]]; then
+if [[ "$step" != plot && "$step" != clone && -z "$input_path" ]]; then
     echo "Error: --input is required the first time; no input path for '$step' is stored in $config_abs." >&2
     exit 1
 fi
@@ -324,6 +350,10 @@ if [[ "$step" == image && ! -f "$input_abs" ]]; then
     echo "Error: image file does not exist: $input_abs" >&2
     exit 1
 fi
+if [[ "$step" == clone && ! -d "$input_abs" ]]; then
+    echo "Error: clone input directory does not exist: $input_abs" >&2
+    exit 1
+fi
 
 case "$step" in
     mrna)
@@ -338,6 +368,7 @@ case "$step" in
             set_config_value mrna_fastq_path "$input_abs"
             set_config_value mrna_output_path "$output_path"
             set_config_value mrna_dir "$output_path/results/$sample_name/Solo.out/GeneFull"
+            set_config_value cluster_csv "$output_path/results/$sample_name/Solo.out/GeneFull/raw/data_tissuefiltered.csv"
         fi
         [[ -n "$cli_genome_dir" ]] && set_config_value genome_dir "$effective_genome_dir"
         [[ -n "$cli_umi_min" ]] && set_config_value umi_min "$cli_umi_min"
@@ -375,6 +406,10 @@ case "$step" in
         fi
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
         [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
+        ;;
+    clone)
+        [[ -n "$cli_clone_labels" ]] && set_config_value clone_labels "$cli_clone_labels"
+        [[ -n "$cli_top_n" ]] && set_config_value clone_top_n "$cli_top_n"
         ;;
 esac
 
@@ -425,11 +460,18 @@ case "$step" in
         cpus=$sbatch_plot_cpus; partition=$sbatch_plot_partition
         memory=$sbatch_plot_mem; walltime=$sbatch_plot_time
         ;;
+    clone)
+        script="$LR_SCRIPT_DIR/top_lr_pipeline.sh"
+        cpus=${sbatch_clone_cpus}; partition=${sbatch_clone_partition}
+        memory=${sbatch_clone_mem}; walltime=${sbatch_clone_time}
+        ;;
 esac
+
+script_args=("$config_abs")
 
 if [[ ${execution_mode} == local ]]; then
     echo "Running $step locally"
-    exec bash "$script" "$config_abs"
+    exec bash "$script" "${script_args[@]}"
 fi
 
 if [[ -z "$partition" ]]; then
@@ -445,10 +487,10 @@ sbatch_args=(
     --time="$walltime"
     -o "$sbatch_output"
     -e "$sbatch_error"
-    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
+    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
 )
 if [[ "${sbatch_requeue:-false}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1)$ ]]; then
     sbatch_args+=(--requeue)
 fi
 echo "Submitting $step"
-sbatch "${sbatch_args[@]}" "$script" "$config_abs"
+sbatch "${sbatch_args[@]}" "$script" "${script_args[@]}"

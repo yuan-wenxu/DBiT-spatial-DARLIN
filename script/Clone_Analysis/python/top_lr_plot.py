@@ -71,11 +71,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--rotate",
-        type=int,
-        choices=[0, 90, 180, 270],
-        default=0,
-        help="Rotate the plot clockwise by 0, 90, 180, or 270 degrees.",
+        "--orientation",
+        choices=["normal", "horizontal", "vertical", "rotate"],
+        default="normal",
+        help="Grid origin orientation: normal, horizontal, vertical, or rotate.",
+    )
+    parser.add_argument(
+        "--swap_xy",
+        action="store_true",
+        default=False,
+        help="Swap x and y axes after applying orientation.",
     )
     parser.add_argument(
         "--cluster-alpha",
@@ -203,28 +208,27 @@ def format_fixed_height_title(text: str, width: int = TITLE_WRAP_WIDTH, line_cou
     return "\n".join(lines)
 
 
-def rotate_coordinates(
+def transform_coordinates(
     frame: pd.DataFrame,
     x_spots: int,
     y_spots: int,
-    angle: int,
+    orientation: str,
+    swap_xy: bool,
 ) -> tuple[pd.DataFrame, int, int]:
-    rotated = frame.copy()
-    if angle == 0:
-        rotated["plot_x"] = rotated["x"]
-        rotated["plot_y"] = rotated["y"]
-        return rotated, x_spots, y_spots
-    if angle == 90:
-        rotated["plot_x"] = y_spots - 1 - rotated["y"]
-        rotated["plot_y"] = rotated["x"]
-        return rotated, y_spots, x_spots
-    if angle == 180:
-        rotated["plot_x"] = x_spots - 1 - rotated["x"]
-        rotated["plot_y"] = y_spots - 1 - rotated["y"]
-        return rotated, x_spots, y_spots
-    rotated["plot_x"] = rotated["y"]
-    rotated["plot_y"] = x_spots - 1 - rotated["x"]
-    return rotated, y_spots, x_spots
+    transformed = frame.copy()
+    if orientation == "horizontal":
+        transformed["x"] = x_spots - 1 - transformed["x"]
+    elif orientation == "vertical":
+        transformed["y"] = y_spots - 1 - transformed["y"]
+    elif orientation == "rotate":
+        transformed["x"] = x_spots - 1 - transformed["x"]
+        transformed["y"] = y_spots - 1 - transformed["y"]
+    if swap_xy:
+        transformed["x"], transformed["y"] = transformed["y"].copy(), transformed["x"].copy()
+        x_spots, y_spots = y_spots, x_spots
+    transformed["plot_x"] = transformed["x"]
+    transformed["plot_y"] = transformed["y"]
+    return transformed, x_spots, y_spots
 
 
 def summarize_lrs(frame: pd.DataFrame) -> pd.DataFrame:
@@ -262,14 +266,16 @@ def _plot_lr_spatial(
     x_spots: int,
     y_spots: int,
     circle_color: str,
-    rotate: int,
+    orientation: str,
+    swap_xy: bool,
     cluster_alpha: float,
 ) -> None:
-    cluster_frame, plot_x_spots, plot_y_spots = rotate_coordinates(
+    cluster_frame, plot_x_spots, plot_y_spots = transform_coordinates(
         cluster_frame,
         x_spots=x_spots,
         y_spots=y_spots,
-        angle=rotate,
+        orientation=orientation,
+        swap_xy=swap_xy,
     )
     lr_spots = (
         lr_data.assign(_ur_clean=lr_data["UR"].astype(str).str.strip())
@@ -283,11 +289,12 @@ def _plot_lr_spatial(
         .sort_values(["SR", "x", "y"], kind="stable")
         .copy()
     )
-    lr_spots, _, _ = rotate_coordinates(
+    lr_spots, _, _ = transform_coordinates(
         lr_spots,
         x_spots=x_spots,
         y_spots=y_spots,
-        angle=rotate,
+        orientation=orientation,
+        swap_xy=swap_xy,
     )
     lr_spots["circle_size"] = lr_spots["unique_ur_count"].map(
         lambda count: 30 if count <= 1 else 70 if count == 2 else 140
@@ -413,7 +420,8 @@ def process_label(
     label: str,
     cluster_frame: pd.DataFrame,
     top_n: int,
-    rotate: int,
+    orientation: str,
+    swap_xy: bool,
     cluster_alpha: float,
 ) -> None:
     input_file = resolve_input_path(input_dir, label)
@@ -447,7 +455,8 @@ def process_label(
             x_spots=x_spots,
             y_spots=y_spots,
             circle_color=circle_color,
-            rotate=rotate,
+            orientation=orientation,
+            swap_xy=swap_xy,
             cluster_alpha=cluster_alpha,
         )
         manifest_rows.append(
@@ -484,7 +493,8 @@ def main() -> None:
             label=label,
             cluster_frame=cluster_frame,
             top_n=args.top_n,
-            rotate=args.rotate,
+            orientation=args.orientation,
+            swap_xy=args.swap_xy,
             cluster_alpha=args.cluster_alpha,
         )
 

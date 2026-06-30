@@ -1,153 +1,92 @@
 #!/bin/bash
 
-set -euo pipefail
-
 show_help() {
     cat << EOF
-Usage: $0 -i <input_dir> -b <bank_dir> --cluster-csv <csv> [options]
+Usage: $0 <config_file>
 
-Run the top-LR plotting pipeline in this order:
-  1. cellcount_filter.py
-  2. allele_bank_filter.py
-  3. top_lr_plot.py
+Run the top-LR plotting pipeline.
 
-Required Arguments:
-  -i, --input-dir <dir>             Path containing CA/RA/TA subdirectories
-  -b, --bank-dir <dir>              Allele bank directory
-      --cluster-csv <csv>           mRNA cluster CSV used as the plotting background
+Arguments:
+  config_file   Per-dataset configuration file
 
-Other Options:
-      --labels <label...>           Labels to process (default: CA RA TA)
-      --output-dir <dir>            Output directory (default: input_dir)
-      --min-sequence-length <int>   Minimum sequence length for allele analysis
-      --top-n <int>                 Number of top LR plots per label (default: 10)
-      --rotate <0|90|180|270>       Clockwise plot rotation (default: 0)
-      --pixi_env <name>             Name of the Pixi environment to use (optional; default: default)
-      --pixi_env_dir <path>         Directory containing pixi.toml (optional; default: repository root)
-  -h, --help                        Show this help message and exit
-
+Examples:
+  $0 config.sh
 EOF
 }
 
+SCRIPT_DIR=${CLONE_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
+PYTHON_DIR="$SCRIPT_DIR/python"
 
-labels=("CA" "RA" "TA")
-output_dir=""
-min_sequence_length=20
-top_n=10
-rotate=0
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
+if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+config_file=$1
+if [[ ! -f "$config_file" ]]; then
+    echo "Error: config file not found: $config_file" >&2
+    exit 1
+fi
+
+source "$config_file"
 pixi_env=${pixi_env:-default}
-pixi_env_dir=${pixi_env_dir:-$(cd "$SCRIPT_DIR/../.." && pwd)}
-
-cellcount_filter="$SCRIPT_DIR/python/cellcount_filter.py"
-allele_bank_filter="$SCRIPT_DIR/python/allele_bank_filter.py"
-top_lr_plot="$SCRIPT_DIR/python/top_lr_plot.py"
-
-
-short_args=()
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --*) break ;;
-        *) short_args+=("$1"); shift ;;
-    esac
-done
-long_args=("$@")
+pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
+input_dir=${amp_dir}
+bank_dir=${bank_dir}
+cluster_csv=${cluster_csv}
+orientation=${orientation}
+swap_xy=${swap_xy}
+min_sequence_length=${min_sequence_length}
+IFS=',' read -r -a labels <<< "${clone_labels:-CA,RA,TA}"
+top_n=${clone_top_n:-10}
 
 
-set -- "${short_args[@]}"
-OPTIND=1
-while getopts "i:b:h" opt; do
-    case $opt in
-        i) input_dir=$OPTARG ;;
-        b) bank_dir=$OPTARG ;;
-        h) show_help; exit 0 ;;
-        ?) echo "Invalid option: -$OPTARG" >&2
-           echo "Use -h or --help for usage information" >&2
-           exit 1 ;;
-    esac
-done
-
-
-set -- "${long_args[@]}"
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --input-dir) input_dir=$2; shift 2 ;;
-        --bank-dir) bank_dir=$2; shift 2 ;;
-        --cluster-csv) cluster_csv=$2; shift 2 ;;
-        --output-dir) output_dir=$2; shift 2 ;;
-        --min-sequence-length) min_sequence_length=$2; shift 2 ;;
-        --top-n) top_n=$2; shift 2 ;;
-        --rotate) rotate=$2; shift 2 ;;
-        --pixi_env) pixi_env=$2; shift 2 ;;
-        --pixi_env_dir) pixi_env_dir=$2; shift 2 ;;
-        --labels)
-            labels=()
-            shift
-            while [[ $# -gt 0 ]] && [[ "$1" != --* ]]; do
-                labels+=("$1")
-                shift
-            done
-            ;;
-        --help) show_help; exit 0 ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
-    esac
-done
-
-
-if [ -z "${input_dir:-}" ]; then
-    echo "Error: -i (--input-dir) is required" >&2
+# Validate required config variables
+if [[ -z "$input_dir" ]]; then
+    echo "Error: amp_dir must be set in the config." >&2
     exit 1
 fi
-
-if [ -z "${bank_dir:-}" ]; then
-    echo "Error: -b (--bank-dir) is required" >&2
+if [[ -z "$bank_dir" ]]; then
+    echo "Error: bank_dir must be set in the config." >&2
     exit 1
 fi
-
-if [ -z "${cluster_csv:-}" ]; then
-    echo "Error: --cluster-csv is required" >&2
+if [[ -z "$cluster_csv" ]]; then
+    echo "Error: cluster_csv must be set in the config." >&2
     exit 1
 fi
+case "$orientation" in
+    normal|horizontal|vertical|rotate) ;;
+    *)
+        echo "Error: orientation must be one of normal, horizontal, vertical, rotate; got '$orientation'." >&2
+        exit 1
+        ;;
+esac
+case "${swap_xy,,}" in
+    true) swap_xy=True ;;
+    false) swap_xy=False ;;
+    *)
+        echo "Error: swap_xy must be True or False; got '$swap_xy'." >&2
+        exit 1
+        ;;
+esac
 
 
-run_step() {
-    local title=$1
-    shift
-
-    echo
-    echo "=== $title ==="
+run_pixi() {
     (
         cd "$pixi_env_dir" || exit 1
-        pixi run -e "$pixi_env" python "$@"
+        pixi run -e "$pixi_env" "$@"
     )
 }
 
+run_pixi python "$PYTHON_DIR/allele_bank_filter.py" \
+    --input-dir "$input_dir" \
+    --bank-dir "$bank_dir" \
+    --min-sequence-length "$min_sequence_length" \
+    --labels "${labels[@]}" \
 
-cellcount_args=(--input-dir "$input_dir" --labels "${labels[@]}")
-allele_args=(--input-dir "$input_dir" --bank-dir "$bank_dir" --min-sequence-length "$min_sequence_length" --labels "${labels[@]}")
-plot_args=(--input-dir "$input_dir" --cluster-csv "$cluster_csv" --top-n "$top_n" --rotate "$rotate" --labels "${labels[@]}")
+run_pixi python "$PYTHON_DIR/top_lr_plot.py" \
+    --input-dir "$input_dir" \
+    --cluster-csv "$cluster_csv" \
+    --top-n "$top_n" \
+    --orientation "$orientation" \
+    --labels "${labels[@]}" \
+    $([ "$swap_xy" = True ] && printf %s --swap_xy) || exit 1
 
-if [ -n "$output_dir" ]; then
-    cellcount_args+=(--output-dir "$output_dir")
-    allele_args+=(--output-dir "$output_dir")
-    plot_args+=(--output-dir "$output_dir")
-fi
-
-
-run_step \
-    "Step 1/3: Cell Count Split" \
-    "$cellcount_filter" \
-    "${cellcount_args[@]}"
-
-run_step \
-    "Step 2/3: Allele Bank Filter" \
-    "$allele_bank_filter" \
-    "${allele_args[@]}"
-
-run_step \
-    "Step 3/3: Top LR Plot" \
-    "$top_lr_plot" \
-    "${plot_args[@]}"
-
-echo
-echo "Pipeline completed successfully."

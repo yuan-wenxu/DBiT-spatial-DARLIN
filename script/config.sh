@@ -3,6 +3,7 @@
 
 # Basic configuration
 genome_dir=/path/to/STAR_genome_index
+bank_dir=/path/to/allele_bank
 scratch=                         # Optional temporary directory
 execution_mode=hpc               # hpc or local
 pixel_length=0.294
@@ -44,6 +45,9 @@ prob_thresh=0.5
 nms_thresh=0.6
 cutoff=100
 
+# Clone analysis
+min_sequence_length=20
+
 # SLURM resources (used when execution_mode=hpc)
 sbatch_job_name_prefix=dbit
 sbatch_output=%x_%j.out
@@ -69,5 +73,10 @@ sbatch_plot_cpus=1
 sbatch_plot_partition=
 sbatch_plot_mem=32G
 sbatch_plot_time=04:00:00
+
+sbatch_clone_cpus=1
+sbatch_clone_partition=
+sbatch_clone_mem=32G
+sbatch_clone_time=04:00:00
 
 # File paths and chip

@@ -94,20 +94,23 @@ cp config.sh config.sample.sh
 bash dbit.sh mrna --input /path/to/transcriptome/fastq --config config.sample.sh --chip 50-20
 ```
 
-The mRNA step also accepts optional filtering thresholds. Supplied values are
-appended to the dataset config; omitted values keep the config defaults:
+The mRNA step also accepts an optional STAR genome index override and filtering
+thresholds. Supplied values are appended to the dataset config; omitted values
+keep the config defaults:
 
 ```bash
 bash dbit.sh mrna \
     --input /path/to/transcriptome/fastq \
     --config /path/to/config.sh \
     --chip 50-20 \
+    --genome-dir /path/to/another/STAR_genome_index \
     --umi-min 900 \
     --gene-min 300 \
     --min-cell 3
 ```
 
-These filtering options are accepted only by the `mrna` step.
+These options are accepted only by the `mrna` step. `--genome-dir` is stored as
+an absolute path and overrides the earlier `genome_dir` value in the config.
 
 The amplicon step provides its own optional filtering thresholds:
 
@@ -125,7 +128,8 @@ bash dbit.sh amplicon \
 These options are accepted only by the `amplicon` step and are appended to the
 dataset config when supplied.
 
-Image requires both orientation parameters and stores them for reuse by plot:
+On the first image run, provide both orientation parameters; they are stored for
+reuse by later image and plot runs:
 
 ```bash
 bash dbit.sh image \
@@ -136,9 +140,9 @@ bash dbit.sh image \
     --swap-xy True
 ```
 
-These required options are accepted only by the `image` step. The plot step
-reads the values previously written to the dataset config and fails if they are
-absent.
+These options are accepted only by the `image` step. A later image run may omit
+either value when it is already stored in the dataset config. The plot step also
+reads the stored values and fails if they are absent.
 
 Plot is the final QC step. It reads all accumulated
 paths and orientation settings from the dataset config, so it needs no input:
@@ -147,9 +151,10 @@ paths and orientation settings from the dataset config, so it needs no input:
 bash dbit.sh plot --config /path/to/config.sh
 ```
 
-The recommended order is `mrna → amplicon → image → plot`. For `mrna`,
-`amplicon`, and `image`, `--input` supports shell path completion and each run
-appends its input and derived result paths to the dataset config.
+The recommended order is `mrna → image → amplicon → plot`. For `mrna`,
+`image`, and `amplicon`, the first `--input` value and its derived result paths
+are stored in the dataset config. Later runs may omit `--input` to reuse the
+stored step-specific path, or supply a new path to override it.
 
 `--chip` selects one of three presets defined in `dbit.sh`:
 
@@ -222,8 +227,9 @@ bash Quality_Control/plot.sh -h
 bash Clone_Analysis/top_lr_pipeline.sh -h
 ```
 
-Use `dbit.sh <step> --input <path> --config <file> [--chip <name>]` for data
-steps and `dbit.sh plot --config <file> [--chip <name>]` for plotting.
+Use `dbit.sh <step> --config <file> [--input <path>] [--chip <name>]` for data
+steps; `--input` is required only before that step has stored one. Use
+`dbit.sh plot --config <file> [--chip <name>]` for plotting.
 Use `dbit.sh <step> -h` for step-specific command-line parameters; base
 pipeline and SLURM settings are documented inline in the config template.
 

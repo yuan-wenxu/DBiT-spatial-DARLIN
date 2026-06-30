@@ -16,7 +16,7 @@ EOF
 }
 
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
-QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
+REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
 
@@ -29,7 +29,8 @@ fi
 # shellcheck disable=SC1090
 source "$config_file"
 pixi_env=${pixi_env:-default}
-pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
+pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
+
 if [[ -z ${cell_number_file:-} ]]; then
     echo "Error: cell_number_file must be set in the QC config." >&2; exit 1
 fi

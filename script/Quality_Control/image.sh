@@ -15,7 +15,7 @@ EOF
 }
 
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
-QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
+REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
@@ -24,11 +24,12 @@ config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2; exit 1
 fi
-# shellcheck disable=SC1090
+
 source "$config_file"
-image_pixi_env=${image_pixi_env:-image}
-pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
-pixel_length=${pixel_length:-0.294}
+pixi_env=${image_pixi_env:-image}
+pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
+result_path=${image_result_path:-}
+
 if [[ -z ${image_path:-} ]]; then
     echo "Error: image_path must be set in the QC config." >&2; exit 1
 fi
@@ -41,9 +42,6 @@ for variable in x_spots_number y_spots_number length_spot interval; do
         exit 1
     fi
 done
-
-result_path=${image_result_path:-}
-pixi_env=$image_pixi_env
 
 normalize_dir_path() {
     local path="$1"

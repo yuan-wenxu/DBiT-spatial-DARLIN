@@ -15,7 +15,7 @@ EOF
 }
 
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
-QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
+REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
@@ -27,8 +27,14 @@ fi
 # shellcheck disable=SC1090
 source "$config_file"
 pixi_env=${pixi_env:-default}
-pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
-pixel_length=${pixel_length:-0.294}
+pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
+fastq_path=$mrna_fastq_path
+output_path=${mrna_output_path}
+preprocess_cores=${mrna_cores}
+umi_min=${umi_min:-900}
+gene_min=${gene_min:-300}
+min_cells=${min_cells:-3}
+
 if [[ -z ${mrna_fastq_path:-} || -z ${genome_dir:-} ]]; then
     echo "Error: mrna_fastq_path and genome_dir must be set in the QC config." >&2
     exit 1
@@ -39,13 +45,6 @@ for variable in x_spots_number y_spots_number length_spot interval whitelist_pat
         exit 1
     fi
 done
-
-fastq_path=$mrna_fastq_path
-output_path=${mrna_output_path}
-preprocess_cores=${mrna_cores}
-umi_min=${umi_min:-900}
-gene_min=${gene_min:-300}
-min_cells=${min_cells:-3}
 
 normalize_dir_path() {
     local path="$1"

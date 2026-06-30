@@ -2,9 +2,9 @@
 set -o pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
-QC_REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
+REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
-export QC_SCRIPT_DIR QC_REPO_DIR
+export QC_SCRIPT_DIR REPO_DIR
 
 show_help() {
     cat <<EOF
@@ -22,49 +22,50 @@ EOF
 
 show_mrna_help() {
     cat <<EOF
-Usage: $0 mrna --input <fastq_dir> --config <file> [options]
+Usage: $0 mrna --config <file> [options]
 
 Required:
-  --input <path>    Transcriptome FASTQ directory
   --config <file>   Per-dataset configuration file
 
 Optional:
-  --chip <name>     50-50, 50-20, or 100-20; required only before stored
-  --umi-min <int>   Minimum UMI count per spot (default: 900)
-  --gene-min <int>  Minimum gene count per spot (default: 300)
-  --min-cell <int>  Minimum cells per gene (default: 3)
+  --input <path>         Transcriptome FASTQ directory; required only before stored
+  --chip <name>          50-50, 50-20, or 100-20; required only before stored
+  --genome-dir <path>    STAR genome index directory; overrides the config value
+  --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
+  --gene-min <int>       Non-negative minimum gene count per spot (default: 300)
+  --min-cell <int>       Positive minimum cells per gene (default: 3)
 EOF
 }
 
 show_amplicon_help() {
     cat <<EOF
-Usage: $0 amplicon --input <fastq_dir> --config <file> [options]
+Usage: $0 amplicon --config <file> [options]
 
 Required:
-  --input <path>    Amplicon FASTQ directory
   --config <file>   Per-dataset configuration file
 
 Optional:
+  --input <path>                                  Amplicon FASTQ directory; required only before stored
   --chip <name>                                   50-50, 50-20, or 100-20; required only before stored
-  --initial-reads-cutoff <int>                    Reads cutoff for initial filtering (default: 100)
-  --major-fraction-threshold-molecule <float>     Reads fraction threshold for major molecule (default: 0.8)
+  --initial-reads-cutoff <int>                    Non-negative reads cutoff for initial filtering (default: 100)
+  --major-fraction-threshold-molecule <float>     Major-molecule reads fraction from 0 to 1 (default: 0.8)
   --reads-fraction-mode <sum|max>                 Mode for calculating reads fraction (default: sum)
-  --reads-cutoff <int>                            Reads cutoff for final filtering (default: 10)
-  --slope-cutoff <float>                          Slope cutoff for final filtering (default: 10)
+  --reads-cutoff <int>                            Non-negative reads cutoff for final filtering (default: 10)
+  --slope-cutoff <float>                          Non-negative slope cutoff for final filtering (default: 10)
 EOF
 }
 
 show_image_help() {
     cat <<EOF
-Usage: $0 image --input <image> --config <file> [options]
+Usage: $0 image --config <file> [options]
 
 Required:
-  --input <path>          Registered input image
   --config <file>         Per-dataset configuration file
-  --orientation <mode>    normal, horizontal, vertical, or rotate
-  --swap-xy <bool>        True or False
 
 Optional:
+  --input <path>          Registered input image; required only before stored
+  --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
+  --swap-xy <bool>        True or False; required only before stored
   --chip <name>           50-50, 50-20, or 100-20; required only before stored
 EOF
 }
@@ -110,12 +111,14 @@ case "$step" in
 esac
 
 input_path=""
+input_from_cli=false
 config_file=""
 selected_chip=""
 chip_from_cli=false
 cli_umi_min=""
 cli_gene_min=""
 cli_min_cell=""
+cli_genome_dir=""
 cli_initial_reads_cutoff=""
 cli_major_fraction_threshold_molecule=""
 cli_reads_fraction_mode=""
@@ -123,27 +126,81 @@ cli_reads_cutoff=""
 cli_slope_cutoff=""
 cli_orientation=""
 cli_swap_xy=""
+
+require_option_value() {
+    if [[ $# -lt 2 || $2 == --* ]]; then
+        echo "Error: option '$1' requires a value." >&2
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --input) input_path=$2; shift 2 ;;
-        --config) config_file=$2; shift 2 ;;
-        --chip) selected_chip=$2; chip_from_cli=true; shift 2 ;;
-        --umi-min) cli_umi_min=$2; shift 2 ;;
-        --gene-min) cli_gene_min=$2; shift 2 ;;
-        --min-cell) cli_min_cell=$2; shift 2 ;;
-        --initial-reads-cutoff) cli_initial_reads_cutoff=$2; shift 2 ;;
-        --major-fraction-threshold-molecule) cli_major_fraction_threshold_molecule=$2; shift 2 ;;
-        --reads-fraction-mode) cli_reads_fraction_mode=$2; shift 2 ;;
-        --reads-cutoff) cli_reads_cutoff=$2; shift 2 ;;
-        --slope-cutoff) cli_slope_cutoff=$2; shift 2 ;;
-        --orientation) cli_orientation=$2; shift 2 ;;
-        --swap-xy) cli_swap_xy=$2; shift 2 ;;
-        *) shift ;;
+        --input) require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
+        --config) require_option_value "$@"; config_file=$2; shift 2 ;;
+        --chip) require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
+        --genome-dir) require_option_value "$@"; cli_genome_dir=$2; shift 2 ;;
+        --umi-min) require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
+        --gene-min) require_option_value "$@"; cli_gene_min=$2; shift 2 ;;
+        --min-cell) require_option_value "$@"; cli_min_cell=$2; shift 2 ;;
+        --initial-reads-cutoff) require_option_value "$@"; cli_initial_reads_cutoff=$2; shift 2 ;;
+        --major-fraction-threshold-molecule) require_option_value "$@"; cli_major_fraction_threshold_molecule=$2; shift 2 ;;
+        --reads-fraction-mode) require_option_value "$@"; cli_reads_fraction_mode=$2; shift 2 ;;
+        --reads-cutoff) require_option_value "$@"; cli_reads_cutoff=$2; shift 2 ;;
+        --slope-cutoff) require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
+        --orientation) require_option_value "$@"; cli_orientation=$2; shift 2 ;;
+        --swap-xy) require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
+        -h|--help) show_step_help "$step"; exit 0 ;;
+        *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
 done
 
+validate_nonnegative_integer() {
+    local option=$1
+    local value=$2
+    if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+        echo "Error: $option must be a non-negative integer; got '$value'." >&2
+        exit 1
+    fi
+}
+
+validate_positive_integer() {
+    local option=$1
+    local value=$2
+    if [[ -n "$value" && ( ! "$value" =~ ^[0-9]+$ || "$value" =~ ^0+$ ) ]]; then
+        echo "Error: $option must be a positive integer; got '$value'." >&2
+        exit 1
+    fi
+}
+
+validate_nonnegative_number() {
+    local option=$1
+    local value=$2
+    if [[ -n "$value" && ! "$value" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]]; then
+        echo "Error: $option must be a non-negative number; got '$value'." >&2
+        exit 1
+    fi
+}
+
+validate_fraction() {
+    local option=$1
+    local value=$2
+    if [[ -n "$value" && ! "$value" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]]; then
+        echo "Error: $option must be a number from 0 to 1; got '$value'." >&2
+        exit 1
+    fi
+    if [[ -n "$value" ]] && ! awk -v value="$value" 'BEGIN { exit !(value >= 0 && value <= 1) }'; then
+        echo "Error: $option must be a number from 0 to 1; got '$value'." >&2
+        exit 1
+    fi
+}
+
 if [[ "$step" != mrna && ( -n "$cli_umi_min" || -n "$cli_gene_min" || -n "$cli_min_cell" ) ]]; then
     echo "Error: --umi-min, --gene-min, and --min-cell can only be used with the mrna step." >&2
+    exit 1
+fi
+if [[ "$step" != mrna && -n "$cli_genome_dir" ]]; then
+    echo "Error: --genome-dir can only be used with the mrna step." >&2
     exit 1
 fi
 if [[ "$step" != amplicon && ( -n "$cli_initial_reads_cutoff" || -n "$cli_major_fraction_threshold_molecule" || -n "$cli_reads_fraction_mode" || -n "$cli_reads_cutoff" || -n "$cli_slope_cutoff" ) ]]; then
@@ -154,13 +211,26 @@ if [[ "$step" != image && ( -n "$cli_orientation" || -n "$cli_swap_xy" ) ]]; the
     echo "Error: --orientation and --swap-xy can only be used with the image step." >&2
     exit 1
 fi
-if [[ "$step" == image && ( -z "$cli_orientation" || -z "$cli_swap_xy" ) ]]; then
-    echo "Error: image requires both --orientation and --swap-xy." >&2
-    exit 1
-fi
 if [[ "$step" == plot && -n "$input_path" ]]; then
     echo "Error: --input cannot be used with the plot step; paths are read from the config." >&2
     exit 1
+fi
+
+validate_nonnegative_integer --umi-min "$cli_umi_min"
+validate_nonnegative_integer --gene-min "$cli_gene_min"
+validate_positive_integer --min-cell "$cli_min_cell"
+validate_nonnegative_integer --initial-reads-cutoff "$cli_initial_reads_cutoff"
+validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_threshold_molecule"
+validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
+validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
+if [[ -n "$cli_reads_fraction_mode" ]]; then
+    case "$cli_reads_fraction_mode" in
+        sum|max) ;;
+        *)
+            echo "Error: --reads-fraction-mode must be sum or max; got '$cli_reads_fraction_mode'." >&2
+            exit 1
+            ;;
+    esac
 fi
 
 if [[ ! -f "$config_file" ]]; then
@@ -169,17 +239,17 @@ if [[ ! -f "$config_file" ]]; then
 fi
 config_abs=$(realpath "$config_file")
 
+# Load stored values first. Command-line values below take precedence and are
+# appended to the config so that later runs can reuse them.
+source "$config_abs"
+
 set_config_value() {
     local key=$1
     local value=$2
     printf '%s=%q\n' "$key" "$value" >> "$config_abs"
 }
 
-if ! $chip_from_cli; then
-    chip=""
-    source "$config_abs"
-    selected_chip=${chip:-}
-fi
+if ! $chip_from_cli; then selected_chip=${chip:-}; fi
 if [[ -z "$selected_chip" ]]; then
     echo "Error: --chip is required the first time; no chip is stored in $config_abs." >&2
     exit 1
@@ -193,8 +263,59 @@ case "$selected_chip" in
         ;;
 esac
 
+if [[ "$step" != plot && -z "$input_path" ]]; then
+    case "$step" in
+        mrna) input_path=${mrna_fastq_path:-} ;;
+        amplicon) input_path=${amplicon_fastq_path:-} ;;
+        image) input_path=${image_path:-} ;;
+    esac
+fi
+if [[ "$step" != plot && -z "$input_path" ]]; then
+    echo "Error: --input is required the first time; no input path for '$step' is stored in $config_abs." >&2
+    exit 1
+fi
+if [[ "$step" == mrna ]]; then
+    effective_genome_dir=${cli_genome_dir:-${genome_dir:-}}
+    if [[ -n "$cli_genome_dir" ]]; then
+        effective_genome_dir=$(realpath -m "$cli_genome_dir")
+    fi
+    if [[ -z "$effective_genome_dir" ]]; then
+        echo "Error: --genome-dir is required the first time; no genome_dir is stored in $config_abs." >&2
+        exit 1
+    fi
+    if [[ ! -d "$effective_genome_dir" ]]; then
+        echo "Error: genome directory does not exist: $effective_genome_dir" >&2
+        exit 1
+    fi
+fi
+if [[ "$step" == image ]]; then
+    effective_orientation=${cli_orientation:-${orientation:-}}
+    effective_swap_xy=${cli_swap_xy:-${swap_xy:-}}
+    if [[ -z "$effective_orientation" || -z "$effective_swap_xy" ]]; then
+        echo "Error: --orientation and --swap-xy are required the first time; no values are stored in $config_abs." >&2
+        exit 1
+    fi
+    case "$effective_orientation" in
+        normal|horizontal|vertical|rotate) ;;
+        *)
+            echo "Error: --orientation must be normal, horizontal, vertical, or rotate; got '$effective_orientation'." >&2
+            exit 1
+            ;;
+    esac
+    case "$effective_swap_xy" in
+        True|False) ;;
+        *)
+            echo "Error: --swap-xy must be True or False; got '$effective_swap_xy'." >&2
+            exit 1
+            ;;
+    esac
+fi
 if [[ "$step" != plot ]]; then
     input_abs=$(realpath -m "$input_path")
+fi
+if [[ "$step" == image && ! -f "$input_abs" ]]; then
+    echo "Error: image file does not exist: $input_abs" >&2
+    exit 1
 fi
 
 case "$step" in
@@ -206,9 +327,12 @@ case "$step" in
         fi
         sample_name=$(basename "$first_r1" _R1.fq.gz)
         output_path=$(dirname "$input_abs")
-        set_config_value mrna_fastq_path "$input_abs"
-        set_config_value mrna_output_path "$output_path"
-        set_config_value mrna_dir "$output_path/results/$sample_name/Solo.out/GeneFull"
+        if $input_from_cli; then
+            set_config_value mrna_fastq_path "$input_abs"
+            set_config_value mrna_output_path "$output_path"
+            set_config_value mrna_dir "$output_path/results/$sample_name/Solo.out/GeneFull"
+        fi
+        [[ -n "$cli_genome_dir" ]] && set_config_value genome_dir "$effective_genome_dir"
         [[ -n "$cli_umi_min" ]] && set_config_value umi_min "$cli_umi_min"
         [[ -n "$cli_gene_min" ]] && set_config_value gene_min "$cli_gene_min"
         [[ -n "$cli_min_cell" ]] && set_config_value min_cells "$cli_min_cell"
@@ -222,9 +346,11 @@ case "$step" in
         sample_name=$(basename "$first_r1" _R1.fq.gz)
         nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\|_CA\|_RA\|_TA\)//')
         output_path=$(dirname "$input_abs")
-        set_config_value amplicon_fastq_path "$input_abs"
-        set_config_value amplicon_output_path "$output_path"
-        set_config_value amp_dir "$output_path/results/$nonlocus_sample_name"
+        if $input_from_cli; then
+            set_config_value amplicon_fastq_path "$input_abs"
+            set_config_value amplicon_output_path "$output_path"
+            set_config_value amp_dir "$output_path/results/$nonlocus_sample_name"
+        fi
         [[ -n "$cli_initial_reads_cutoff" ]] && set_config_value initial_reads_cutoff "$cli_initial_reads_cutoff"
         [[ -n "$cli_major_fraction_threshold_molecule" ]] && set_config_value major_fraction_threshold_molecule "$cli_major_fraction_threshold_molecule"
         [[ -n "$cli_reads_fraction_mode" ]] && set_config_value reads_fraction_mode "$cli_reads_fraction_mode"
@@ -233,10 +359,12 @@ case "$step" in
         ;;
     image)
         output_path=$(dirname "$input_abs")
-        set_config_value image_path "$input_abs"
-        set_config_value image_result_path "$output_path"
-        set_config_value cell_number_file "$output_path/filtered_results.csv"
-        set_config_value gray_path "$output_path/gray.png"
+        if $input_from_cli; then
+            set_config_value image_path "$input_abs"
+            set_config_value image_result_path "$output_path"
+            set_config_value cell_number_file "$output_path/filtered_results.csv"
+            set_config_value gray_path "$output_path/gray.png"
+        fi
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
         [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$cli_swap_xy"
         ;;
@@ -253,17 +381,17 @@ case "$selected_chip" in
     50-50)
         chip=50-50; x_spots_number=50; y_spots_number=50
         length_spot=50; interval=50
-        whitelist_path="$QC_REPO_DIR/docs/barcodes/barcodes.tsv"
+        whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
         ;;
     50-20)
         chip=50-20; x_spots_number=50; y_spots_number=50
         length_spot=20; interval=20
-        whitelist_path="$QC_REPO_DIR/docs/barcodes/barcodes.tsv"
+        whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
         ;;
     100-20)
         chip=100-20; x_spots_number=100; y_spots_number=100
         length_spot=20; interval=20
-        whitelist_path="$QC_REPO_DIR/docs/barcodes/barcodes100.tsv"
+        whitelist_path="$REPO_DIR/docs/barcodes/barcodes100.tsv"
         ;;
 esac
 export chip x_spots_number y_spots_number length_spot interval whitelist_path
@@ -309,7 +437,7 @@ sbatch_args=(
     --time="$walltime"
     -o "$sbatch_output"
     -e "$sbatch_error"
-    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,QC_REPO_DIR=$QC_REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
+    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
 )
 if [[ "${sbatch_requeue:-false}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1)$ ]]; then
     sbatch_args+=(--requeue)

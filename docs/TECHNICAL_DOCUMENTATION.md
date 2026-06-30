@@ -28,9 +28,10 @@ script/Clone_Analysis/top_lr_pipeline.sh
 ```
 
 `dbit.sh` is the single-step local/SLURM launcher. For `mrna`, `amplicon`, and
-`image`, it receives an input path through `--input` and appends that input plus derived result
-paths to the per-dataset config. The final `plot` step runs after image, reads
-those accumulated paths, and therefore needs no separate input. `--chip`
+`image`, it receives an input path through `--input` and appends that input plus
+derived result paths to the per-dataset config. Later runs may omit `--input`
+and reuse the path stored for that step. The final `plot` step runs after image,
+reads those accumulated paths, and therefore needs no separate input. `--chip`
 accepts `50-50`, `50-20`, or
 `100-20`. Chip dimensions and whitelist selection are defined only in that
 launcher and exported to the selected worker job. All shell entry points run
@@ -40,14 +41,16 @@ The selected chip name is also appended to the per-dataset config. Later steps
 may omit `--chip` and reuse that value; a new command-line value is appended as
 the latest selection. Grid dimensions remain centralized in `dbit.sh`.
 
-The mRNA step optionally accepts `--umi-min`, `--gene-min`, and `--min-cell`;
-provided values are appended to the per-dataset config before submission and
-are rejected for other steps. The amplicon step similarly accepts
+The mRNA step optionally accepts `--genome-dir`, `--umi-min`, `--gene-min`, and
+`--min-cell`; provided values are appended to the per-dataset config before
+submission and are rejected for other steps. The genome directory override is
+stored as an absolute path. The amplicon step similarly accepts
 `--initial-reads-cutoff`, `--major-fraction-threshold-molecule`,
 `--reads-cutoff`, and `--slope-cutoff`, all restricted to that step. Image runs
-require `--orientation` and `--swap-xy`; both values are appended so the later
-plot stage uses the same transformation. These options are rejected for all
-non-image steps, and plot fails if image has not stored them.
+require `--orientation` and `--swap-xy` only when the corresponding values are
+not already stored; command-line values are appended so later image and plot
+runs use the same transformation. These options are rejected for all non-image
+steps, and plot fails if image has not stored them.
 
 ## 2. Shared Concepts
 

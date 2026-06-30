@@ -70,4 +70,4 @@ sbatch_plot_partition=
 sbatch_plot_mem=32G
 sbatch_plot_time=04:00:00
 
-# File paths
+# File paths and chip

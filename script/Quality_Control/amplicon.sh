@@ -15,7 +15,7 @@ EOF
 }
 
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
-QC_REPO_DIR=${QC_REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
+REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
@@ -27,12 +27,17 @@ fi
 # shellcheck disable=SC1090
 source "$config_file"
 pixi_env=${pixi_env:-default}
-pixi_env_dir=${pixi_env_dir:-$QC_REPO_DIR}
+pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
 initial_reads_cutoff=${initial_reads_cutoff:-100}
 major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
 reads_fraction_mode=${reads_fraction_mode:-sum}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
+fastq_path=$amplicon_fastq_path
+output_path=${amplicon_output_path:-}
+cores=${amp_cores}
+cutadapt=${cutadapt}
+
 if [[ -z ${amplicon_fastq_path:-} ]]; then
     echo "Error: amplicon_fastq_path must be set in the QC config." >&2; exit 1
 fi
@@ -40,11 +45,6 @@ if [[ -z ${whitelist_path:-} ]]; then
     echo "Run this script through dbit.sh so --chip is resolved." >&2
     exit 1
 fi
-
-fastq_path=$amplicon_fastq_path
-output_path=${amplicon_output_path:-}
-cores=${amp_cores}
-cutadapt=${cutadapt}
 
 normalize_dir_path() {
     local path="$1"

@@ -4,7 +4,7 @@ show_help() {
     cat << EOF
 Usage: $0 <config_file>
 
-Plot filtered results (cell-filtered) for mRNA and/or amplicon data.
+Plot tissue-filtered results for mRNA and/or amplicon data while retaining cell counts.
 
 Arguments:
   config_file   Per-dataset QC configuration file
@@ -114,7 +114,7 @@ if [[ ! -d "$pixi_env_dir" ]]; then
     exit 1
 fi
 
-# mRNA cell-filtered plot (only when mrna_dir is provided)
+# mRNA tissue-filtered plot (only when mrna_dir is provided)
 if [ -n "$mrna_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
@@ -130,7 +130,7 @@ if [ -n "$mrna_dir" ]; then
     merge_with_gray "$mrna_dir" || exit 1
 fi
 
-# Amplicon cell-filtered plot (only when amp_dir is provided)
+# Amplicon tissue-filtered plot (only when amp_dir is provided)
 if [ -n "$amp_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1

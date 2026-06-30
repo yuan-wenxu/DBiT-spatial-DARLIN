@@ -105,7 +105,7 @@ def classify_spots_by_cell_count(
 
 
 def resolve_input_path(input_dir: Path, label: str) -> Path:
-    input_path = input_dir / label / "cellfiltered.csv"
+    input_path = input_dir / label / "tissuefiltered.csv"
     if input_path.exists():
         return input_path
     raise SystemExit(f"Input file not found: {input_path}")

@@ -72,6 +72,27 @@ compress_fastq_file() {
     fi
 }
 
+star_outputs_complete() {
+    local result_dir=$1
+    local required_file
+    local required_files=(
+        "Aligned.sortedByCoord.out.bam"
+        "Log.final.out"
+        "Solo.out/GeneFull/raw/matrix.mtx"
+        "Solo.out/GeneFull/raw/barcodes.tsv"
+        "Solo.out/GeneFull/raw/features.tsv"
+        "Solo.out/GeneFull/filtered/matrix.mtx"
+        "Solo.out/GeneFull/filtered/barcodes.tsv"
+        "Solo.out/GeneFull/filtered/features.tsv"
+    )
+    for required_file in "${required_files[@]}"; do
+        if [[ ! -s "$result_dir/$required_file" ]]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 # Validate inputs
 fastq_path=$(normalize_dir_path "$fastq_path")
 if [ -n "$scratch" ]; then
@@ -102,7 +123,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     r2_orig="$fastq_path/${sample_name}_R2.fq.gz"
 
     log_file="$orig_output_path/${sample_name}_preprocess.log"
-    bam_file="$orig_output_path/results/$sample_name/Aligned.sortedByCoord.out.bam"
+    final_results="$orig_output_path/results/$sample_name"
 
     gzip_after_enabled=false
     if [[ "${gzip_after_preprocess,,}" =~ ^(true|yes|1)$ ]]; then
@@ -123,7 +144,11 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     pre_done=false
     star_done=false
     if [ -f "$pre_file" ] && [ -f "$log_file" ]; then pre_done=true; fi
-    if [ -f "$bam_file" ]; then star_done=true; fi
+    if star_outputs_complete "$final_results"; then
+        star_done=true
+    elif [[ -d "$final_results" ]]; then
+        echo "Warning: incomplete STAR outputs found for $sample_name; rerunning Step2." >&2
+    fi
 
     use_scratch=false
     if [ -n "$scratch" ]; then
@@ -194,6 +219,14 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     if $star_done; then
         echo "Step2 STAR already done for $sample_name, skipping..."
     else
+        if [[ -d "$final_results" ]]; then
+            echo "Removing incomplete STAR outputs for $sample_name: $final_results"
+            rm -rf -- "$final_results" || {
+                echo "Error: failed to remove incomplete STAR outputs: $final_results" >&2
+                exit 1
+            }
+        fi
+
         if $use_scratch; then
             mkdir -p "$scratch_input" "$scratch_output"
             cp "$pre_r1" "$pre_r2" "$scratch_input/"
@@ -204,6 +237,13 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             star_results="$orig_output_path/results/$sample_name"
         fi
 
+        if $use_scratch && [[ -d "$star_results" ]]; then
+            echo "Removing stale scratch STAR outputs for $sample_name: $star_results"
+            rm -rf -- "$star_results" || {
+                echo "Error: failed to remove stale STAR outputs: $star_results" >&2
+                exit 1
+            }
+        fi
         mkdir -p "$star_results"
         star_read_args=()
         if [ "$bc_ext" = "fq.gz" ]; then
@@ -235,16 +275,29 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
                 exit 1
             }
 
+        if ! star_outputs_complete "$star_results"; then
+            echo "Error: STAR finished without all required outputs for $sample_name: $star_results" >&2
+            exit 1
+        fi
+
         # Step3 is local only, so copy step2 results back first when using scratch.
         if $use_scratch; then
             mkdir -p "$orig_output_path/results/$sample_name"
-            cp -r "$star_results"/* "$orig_output_path/results/$sample_name"/
+            cp -r "$star_results"/* "$orig_output_path/results/$sample_name"/ || {
+                echo "Error: failed to copy STAR results from scratch for $sample_name; preserving $scratch_sample" >&2
+                exit 1
+            }
         fi
     fi
 
     # Step 3: always run locally, no skip and no scratch.
-    final_results="$orig_output_path/results/$sample_name"
-    mkdir -p "$final_results"
+    if ! star_outputs_complete "$final_results"; then
+        echo "Error: incomplete STAR outputs for mRNA QC: $final_results" >&2
+        if $use_scratch; then
+            echo "Scratch data preserved at $scratch_sample" >&2
+        fi
+        exit 1
+    fi
     run_pixi python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \

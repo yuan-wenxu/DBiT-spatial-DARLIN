@@ -16,7 +16,7 @@ Steps:
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
   amplicon      Process DARLIN amplicon FASTQs
   image         Segment a registered image and count cells
-  plot          Final step: generate cell-filtered plots after image
+  plot          Final step: generate tissue-filtered plots after image
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
 EOF
@@ -370,6 +370,7 @@ case "$step" in
             set_config_value image_path "$input_abs"
             set_config_value image_result_path "$output_path"
             set_config_value cell_number_file "$output_path/filtered_results.csv"
+            set_config_value tissue_mask_file "$output_path/tissue_mask.png"
             set_config_value gray_path "$output_path/gray.png"
         fi
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"

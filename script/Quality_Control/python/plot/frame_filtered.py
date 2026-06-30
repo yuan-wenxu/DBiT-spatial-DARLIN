@@ -31,12 +31,26 @@ def legend(data, output_path, name):
 
 def plot_frame(data, output_path, config):
 
+    positive_cell_spots = data['count'] > 0 if 'count' in data.columns else None
+    has_umi_per_cell = (
+        'umi_count' in data.columns
+        and positive_cell_spots is not None
+        and bool((positive_cell_spots & (data['umi_count'] > 0)).any())
+    )
+    has_gene_per_cell = (
+        'gene_count' in data.columns
+        and positive_cell_spots is not None
+        and bool((positive_cell_spots & (data['gene_count'] > 0)).any())
+    )
+
     if 'umi_count' in data.columns:
         legend(data['umi_count'], output_path, 'UMI_distribution')
-        legend(data['umi_count'] / data['count'], output_path, 'UMI_per_cell_distribution')
+        if has_umi_per_cell:
+            legend(data.loc[positive_cell_spots, 'umi_count'] / data.loc[positive_cell_spots, 'count'], output_path, 'UMI_per_cell_distribution')
     if 'gene_count' in data.columns:
         legend(data['gene_count'], output_path, 'Gene_distribution')
-        legend(data['gene_count'] / data['count'], output_path, 'Gene_per_cell_distribution')
+        if has_gene_per_cell:
+            legend(data.loc[positive_cell_spots, 'gene_count'] / data.loc[positive_cell_spots, 'count'], output_path, 'Gene_per_cell_distribution')
 
     if 'leiden' in data.columns:
         frame = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
@@ -59,17 +73,19 @@ def plot_frame(data, output_path, config):
         frame_umi = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
                               int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
                               dtype=np.float32)
-        frame_umi_per_cell = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
-                                       int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
-                                       dtype=np.float32)
+        if has_umi_per_cell:
+            frame_umi_per_cell = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
+                                           int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
+                                           dtype=np.float32)
 
     if 'gene_count' in data.columns:
         frame_gene = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
                                int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
                                dtype=np.float32)
-        frame_gene_per_cell = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
-                                        int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
-                                        dtype=np.float32)
+        if has_gene_per_cell:
+            frame_gene_per_cell = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
+                                            int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
+                                            dtype=np.float32)
 
     for _, row in data.iterrows():
         x_idx = int(row['x'])
@@ -83,13 +99,15 @@ def plot_frame(data, output_path, config):
         if 'umi_count' in data.columns:
             frame_umi[y_start: y_end, x_start: x_end, 0] = 255
             frame_umi[y_start: y_end, x_start: x_end, 3] = row['umi_count']
-            frame_umi_per_cell[y_start: y_end, x_start: x_end, 0] = 255
-            frame_umi_per_cell[y_start: y_end, x_start: x_end, 3] = row['umi_count'] / row['count']
+            if has_umi_per_cell and row['count'] > 0:
+                frame_umi_per_cell[y_start: y_end, x_start: x_end, 0] = 255
+                frame_umi_per_cell[y_start: y_end, x_start: x_end, 3] = row['umi_count'] / row['count']
         if 'gene_count' in data.columns:
             frame_gene[y_start: y_end, x_start: x_end, 0] = 255
             frame_gene[y_start: y_end, x_start: x_end, 3] = int(row['gene_count'])
-            frame_gene_per_cell[y_start: y_end, x_start: x_end, 0] = 255
-            frame_gene_per_cell[y_start: y_end, x_start: x_end, 3] = int(row['gene_count']) / row['count']
+            if has_gene_per_cell and row['count'] > 0:
+                frame_gene_per_cell[y_start: y_end, x_start: x_end, 0] = 255
+                frame_gene_per_cell[y_start: y_end, x_start: x_end, 3] = int(row['gene_count']) / row['count']
         if 'leiden' in data.columns:
             cluster_id = int(row['leiden'])
             frame[y_start: y_end, x_start: x_end, :] = (cluster_colors[cluster_id] * 255).astype(np.uint8)
@@ -108,12 +126,13 @@ def plot_frame(data, output_path, config):
         frame_umi[:, :, 3] = (frame_umi[:, :, 3] * 255).astype(np.uint8)
         frame_umi = frame_umi.astype(np.uint8)
 
-        nozero = frame_umi_per_cell[:, :, 3][frame_umi_per_cell[:, :, 3] > 0]
-        medain = np.percentile(nozero, 95)
-        frame_umi_per_cell[:, :, 3] = frame_umi_per_cell[:, :, 3] / medain
-        frame_umi_per_cell[:, :, 3][frame_umi_per_cell[:, :, 3] > 1] = 1
-        frame_umi_per_cell[:, :, 3] = (frame_umi_per_cell[:, :, 3] * 255).astype(np.uint8)
-        frame_umi_per_cell = frame_umi_per_cell.astype(np.uint8)
+        if has_umi_per_cell:
+            nozero = frame_umi_per_cell[:, :, 3][frame_umi_per_cell[:, :, 3] > 0]
+            medain = np.percentile(nozero, 95)
+            frame_umi_per_cell[:, :, 3] = frame_umi_per_cell[:, :, 3] / medain
+            frame_umi_per_cell[:, :, 3][frame_umi_per_cell[:, :, 3] > 1] = 1
+            frame_umi_per_cell[:, :, 3] = (frame_umi_per_cell[:, :, 3] * 255).astype(np.uint8)
+            frame_umi_per_cell = frame_umi_per_cell.astype(np.uint8)
 
         img_umi = Image.fromarray(frame_umi, mode = 'RGBA')
         img_umi = img_umi.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
@@ -121,11 +140,12 @@ def plot_frame(data, output_path, config):
                                   resample = Image.NEAREST)
         img_umi.save(f'{output_path}/umi_filtered.png')
 
-        img_umi_per_cell = Image.fromarray(frame_umi_per_cell, mode = 'RGBA')
-        img_umi_per_cell = img_umi_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                                    int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                                    resample = Image.NEAREST)
-        img_umi_per_cell.save(f'{output_path}/umi_per_cell_filtered.png')
+        if has_umi_per_cell:
+            img_umi_per_cell = Image.fromarray(frame_umi_per_cell, mode = 'RGBA')
+            img_umi_per_cell = img_umi_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
+                                                        int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
+                                                        resample = Image.NEAREST)
+            img_umi_per_cell.save(f'{output_path}/umi_per_cell_filtered.png')
 
     if 'gene_count' in data.columns:
         nozero = frame_gene[:, :, 3][frame_gene[:, :, 3] > 0]
@@ -135,12 +155,13 @@ def plot_frame(data, output_path, config):
         frame_gene[:, :, 3] = (frame_gene[:, :, 3] * 255).astype(np.uint8)
         frame_gene = frame_gene.astype(np.uint8)
 
-        nozero = frame_gene_per_cell[:, :, 3][frame_gene_per_cell[:, :, 3] > 0]
-        medain = np.percentile(nozero, 95)
-        frame_gene_per_cell[:, :, 3] = frame_gene_per_cell[:, :, 3] / medain
-        frame_gene_per_cell[:, :, 3][frame_gene_per_cell[:, :, 3] > 1] = 1
-        frame_gene_per_cell[:, :, 3] = (frame_gene_per_cell[:, :, 3] * 255).astype(np.uint8)
-        frame_gene_per_cell = frame_gene_per_cell.astype(np.uint8)
+        if has_gene_per_cell:
+            nozero = frame_gene_per_cell[:, :, 3][frame_gene_per_cell[:, :, 3] > 0]
+            medain = np.percentile(nozero, 95)
+            frame_gene_per_cell[:, :, 3] = frame_gene_per_cell[:, :, 3] / medain
+            frame_gene_per_cell[:, :, 3][frame_gene_per_cell[:, :, 3] > 1] = 1
+            frame_gene_per_cell[:, :, 3] = (frame_gene_per_cell[:, :, 3] * 255).astype(np.uint8)
+            frame_gene_per_cell = frame_gene_per_cell.astype(np.uint8)
 
         
         img_gene = Image.fromarray(frame_gene, mode = 'RGBA')
@@ -149,8 +170,9 @@ def plot_frame(data, output_path, config):
                                     resample = Image.NEAREST)
         img_gene.save(f'{output_path}/gene_filtered.png')
 
-        img_gene_per_cell = Image.fromarray(frame_gene_per_cell, mode = 'RGBA')
-        img_gene_per_cell = img_gene_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                                      int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                                      resample = Image.NEAREST)
-        img_gene_per_cell.save(f'{output_path}/gene_per_cell_filtered.png')
+        if has_gene_per_cell:
+            img_gene_per_cell = Image.fromarray(frame_gene_per_cell, mode = 'RGBA')
+            img_gene_per_cell = img_gene_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
+                                                          int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
+                                                          resample = Image.NEAREST)
+            img_gene_per_cell.save(f'{output_path}/gene_per_cell_filtered.png')

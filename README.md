@@ -188,7 +188,7 @@ job. Chip presets are not duplicated in the config or worker scripts.
 bash Clone_Analysis/top_lr_pipeline.sh \
     -i /path/to/sample_name/amplicon/results/sample_name \
     -b /path/to/allele_bank \
-    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull/raw/data_cellfiltered.csv
+    --cluster-csv /path/to/sample_name/transcriptome/results/sample_name/Solo.out/GeneFull/raw/data_tissuefiltered.csv
 ```
 
 This workflow:
@@ -243,7 +243,7 @@ pipeline and SLURM settings are documented inline in the config template.
 
 Required:
 
-- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `cellfiltered.csv`
+- `-i, --input-dir <dir>`: directory containing `CA`, `RA`, and/or `TA` subdirectories with `tissuefiltered.csv`
 - `-b, --bank-dir <dir>`: directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
 - `--cluster-csv <path>`: mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
 
@@ -265,6 +265,7 @@ sample_name/
 │   └── results/
 ├── image/
 │   ├── filtered_results.csv
+│   ├── tissue_mask.png
 │   └── gray.png
 └── amplicon/
     └── results/
@@ -279,10 +280,10 @@ Clone-analysis outputs are written under the selected `--output-dir`:
 ```text
 <output_dir>/
 ├── CA/
-│   ├── cellfiltered.n_LR_gt_count.csv
-│   ├── cellfiltered.n_LR_le_count.csv
-│   ├── cellfiltered.count_summary.txt
-│   ├── cellfiltered.bank_filtered.csv
+│   ├── tissuefiltered.n_LR_gt_count.csv
+│   ├── tissuefiltered.n_LR_le_count.csv
+│   ├── tissuefiltered.count_summary.txt
+│   ├── tissuefiltered.bank_filtered.csv
 │   └── top_lr_plots/
 │       ├── topLR_001_srXXX_urXXX.png
 │       └── CA_top_lr_plot_manifest.csv

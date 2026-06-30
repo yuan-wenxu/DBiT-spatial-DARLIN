@@ -1,4 +1,10 @@
-from image_process import stardist_pre, StardistConfig, split_image, PlotConfig
+from image_process import (
+    PlotConfig,
+    StardistConfig,
+    generate_tissue_mask,
+    split_image,
+    stardist_pre,
+)
 import os
 import pandas as pd
 import argparse
@@ -34,6 +40,9 @@ def main(image_path, split_path, mask_path, label_path, plot_config, stardist_co
     os.makedirs(mask_path, exist_ok=True)
     os.makedirs(label_path, exist_ok=True)
     result_path = os.path.dirname(split_path)
+    tissue_mask = generate_tissue_mask(
+        image_path, os.path.join(result_path, 'tissue_mask.png')
+    )
     orientation_file = os.path.join(split_path, '.orientation')
     expected_split_count = plot_config.x_spots_number * plot_config.y_spots_number
     split_files = [
@@ -46,14 +55,32 @@ def main(image_path, split_path, mask_path, label_path, plot_config, stardist_co
         with open(orientation_file, 'r', encoding='utf-8') as f:
             previous_orientation = f.read().strip()
 
-    if len(split_files) == expected_split_count and previous_orientation == transform_key:
+    write_tiles = not (
+        len(split_files) == expected_split_count
+        and previous_orientation == transform_key
+    )
+    if not write_tiles:
         print(f'✓ Split images already exist in {split_path} with {transform_key}, skipping splitting step.')
-    else:
-        split_image(image_path, plot_config, split_path, result_path, put_text, font_size, orientation, swap_xy)
+    tissue_spots = split_image(
+        image_path,
+        plot_config,
+        split_path,
+        result_path,
+        put_text,
+        font_size,
+        orientation,
+        swap_xy,
+        tissue_mask=tissue_mask,
+        write_tiles=write_tiles,
+    )
+    print(f'Tissue spots: {sum(tissue_spots.values())}/{len(tissue_spots)}')
+    if write_tiles:
         with open(orientation_file, 'w', encoding='utf-8') as f:
             f.write(transform_key)
 
-    result = pd.DataFrame(columns=['x', 'y', 'num_cells', 'area', 'status'])
+    result = pd.DataFrame(
+        columns=['x', 'y', 'num_cells', 'area', 'status', 'in_tissue']
+    )
 
     for i in os.listdir(split_path):
         if not i.lower().endswith(('.tif', '.tiff', '.png', '.jpg')):
@@ -62,14 +89,14 @@ def main(image_path, split_path, mask_path, label_path, plot_config, stardist_co
         split_file = os.path.join(split_path, i)
         mask_file = os.path.join(mask_path, i)
         label_file = os.path.join(label_path, i)
+        x = int(i.split('.')[0].split('_')[0])
+        y = int(i.split('.')[0].split('_')[1])
+        in_tissue = tissue_spots[(x, y)]
         
         try:
             labels = stardist_pre(split_file, mask_file, label_file, stardist_config)
             
             if labels is not None:
-                # Extract x, y coordinates from filename
-                x = i.split('.')[0].split('_')[0]
-                y = i.split('.')[0].split('_')[1]
                 num_cells = int(np.max(labels))
                 
                 # Get cell areas
@@ -85,36 +112,35 @@ def main(image_path, split_path, mask_path, label_path, plot_config, stardist_co
                         'y': [y], 
                         'num_cells': [num_cells], 
                         'area': [areas], 
-                        'status': ['predicted']
+                        'status': ['predicted'],
+                        'in_tissue': [in_tissue]
                     })],
                     ignore_index=True
                 )
                 print(f'✓ Processed: {i} - {num_cells} cells')
             else:
                 # Low quality image - skip
-                x = i.split('.')[0].split('_')[0]
-                y = i.split('.')[0].split('_')[1]
                 result = pd.concat(
                     [result, pd.DataFrame({
                         'x': [x], 
                         'y': [y], 
                         'num_cells': [0], 
                         'area': [[]], 
-                        'status': ['skipped']
+                        'status': ['skipped'],
+                        'in_tissue': [in_tissue]
                     })],
                     ignore_index=True
                 )
                 print(f'✗ Skipped: {i} - no cells')
         except Exception as e:
-            x = i.split('.')[0].split('_')[0]
-            y = i.split('.')[0].split('_')[1]
             result = pd.concat(
                 [result, pd.DataFrame({
                     'x': [x], 
                     'y': [y], 
                     'num_cells': [0], 
                     'area': [[]], 
-                    'status': [f'error: {str(e)}']
+                    'status': [f'error: {str(e)}'],
+                    'in_tissue': [in_tissue]
                 })],
                 ignore_index=True
             )

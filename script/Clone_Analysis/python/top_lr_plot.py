@@ -4,7 +4,7 @@ Plot the largest LR entries from allele-bank-filtered CSV files.
 
 "Largest" is defined as the LR observed in the greatest number of unique SR
 (spots). The plotting style matches the current Clone_Analysis overlays:
-- cluster background from an mRNA data_cellfiltered.csv
+- cluster background from an mRNA data_tissuefiltered.csv
 - a contrasting hollow circle on spots containing the selected LR
 - circle size split into 3 bins by unique UR count per SR/LR
 
@@ -87,7 +87,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_input_path(input_dir: Path, label: str) -> Path:
-    input_path = input_dir / label / "cellfiltered.bank_filtered.csv"
+    input_path = input_dir / label / "tissuefiltered.bank_filtered.csv"
     if input_path.exists():
         return input_path
     raise SystemExit(f"Input file not found: {input_path}")

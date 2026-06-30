@@ -10,7 +10,7 @@ The repository contains two related workflows:
    - transcriptome FASTQ processing and spatial mRNA QC
    - registered image splitting and StarDist cell counting
    - DARLIN amplicon FASTQ processing and spatial clone-call QC
-   - cell-filtered visualization and optional image merging
+   - tissue-filtered visualization and optional image merging
 2. Clone analysis:
    - split clone calls by predicted cell count
    - filter LR sequences against allele-bank definitions
@@ -195,7 +195,7 @@ Solo.out/GeneFull/raw/
 - `leiden`
 - `color`
 
-`data_cellfiltered.csv` is produced later by `plot.sh` after merging image-derived cell counts with mRNA spot data.
+`data_tissuefiltered.csv` is produced later by `plot.sh` after applying the image-derived tissue mask to mRNA spot data.
 
 ## 4. Image Workflow
 
@@ -209,16 +209,23 @@ The image workflow assumes a registered and cropped image, usually named `align.
 
 Main steps:
 
-1. Split the registered image into DBiT grid tiles.
-2. Run StarDist on each tile.
-3. Summarize predicted cell count and area per spot.
-4. Filter spots by cell-count cutoff.
-5. Write a preview image and cell-count table.
+1. Generate a coarse whole-image tissue mask by treating near-black pixels as
+   background, requiring a small amount of local signal density, and removing
+   isolated regions outside the main tissue.
+2. Pass the mask into the image-splitting loop so each logical DBiT spot is
+   numbered, cropped, and classified in one traversal using the same
+   orientation mapping.
+3. Run StarDist on each generated tile.
+4. Write cell count, cell area, and `in_tissue` status for every spot.
+5. Filter predicted cells by the configured area cutoff while retaining both
+   the per-spot cell-count interface and `in_tissue` column. Downstream plots
+   filter spots using `in_tissue` rather than requiring `count > 0`.
 
 Implementation files:
 
 ```text
 script/Quality_Control/python/stardist_segment.py
+script/Quality_Control/python/image_process/tissue_mask.py
 script/Quality_Control/python/image_process/split.py
 script/Quality_Control/python/image_process/stardist_predict.py
 script/Quality_Control/python/cell_filter.py
@@ -231,12 +238,19 @@ image/
 ├── result.png
 ├── cell_num_area.csv
 ├── filtered_results.csv
+├── tissue_mask.png
 ├── mask/
 ├── label/
 └── split/
 ```
 
-`filtered_results.csv` is the image-derived table used by `plot.sh`. It contains spot coordinates and predicted cell-count information.
+`filtered_results.csv` is the image-derived table used by `plot.sh`. It retains
+spot coordinates and predicted cell counts and adds the Boolean `in_tissue`
+column used for spot filtering. `tissue_mask.png` is a full-resolution binary
+mask in the registered image coordinate system.
+
+Tissue-mask thresholds and cleanup parameters are internal defaults; no
+additional user configuration is required.
 
 The image workflow uses the `image` Pixi environment because it depends on TensorFlow, StarDist, OpenCV, and related image packages.
 
@@ -313,9 +327,9 @@ amplicon/results/<sample_name>/<CA|RA|TA>/
 └── sr_reads_vs_umis.png
 ```
 
-`final.csv` is the main per-locus clone-call table used by downstream cell-filtered plotting.
+`final.csv` is the main per-locus clone-call table used by downstream tissue-filtered plotting.
 
-## 6. Cell-Filtered Visualization
+## 6. Tissue-Filtered Visualization
 
 Entry point:
 
@@ -323,12 +337,15 @@ Entry point:
 script/Quality_Control/plot.sh
 ```
 
-This step combines image-derived cell count information with mRNA and/or amplicon spatial results.
+This step combines image-derived tissue membership and retained cell-count
+information with mRNA and/or amplicon spatial results. Spots are filtered by
+`in_tissue`; cell counts remain available for cell-based summaries.
 
 The primary input is passed on the command line; additional plotting paths are
 set in the shared QC config:
 
 - `cell_number_file`: appended to the dataset config by the image step; usually `image/filtered_results.csv`
+- `tissue_mask_file`: whole-image binary mask, usually `image/tissue_mask.png`
 - `mrna_dir`: STARsolo `GeneFull` directory
 - `amp_dir`: amplicon result directory
 - `gray_path`: grayscale image for merged overlays
@@ -343,12 +360,12 @@ script/Quality_Control/python/mrna_cell.py
 Key mRNA output:
 
 ```text
-<mrna_dir>/raw/data_cellfiltered.csv
+<mrna_dir>/raw/data_tissuefiltered.csv
 <mrna_dir>/raw/umap_filtered.png
 <mrna_dir>/raw/umi_filtered.png
 <mrna_dir>/raw/gene_filtered.png
 <mrna_dir>/raw/merged_umap_filtered.png
-<mrna_dir>/filtered/data_cellfiltered.csv
+<mrna_dir>/filtered/data_tissuefiltered.csv
 <mrna_dir>/filtered/umap_filtered.png
 <mrna_dir>/filtered/umi_filtered.png
 <mrna_dir>/filtered/gene_filtered.png
@@ -365,7 +382,7 @@ Key amplicon outputs are written per locus:
 
 ```text
 <amp_dir>/<CA|RA|TA>/
-├── cellfiltered.csv
+├── tissuefiltered.csv
 ├── umi_filtered.png
 └── merged_umi_filtered.png
 ```
@@ -380,13 +397,13 @@ Entry point:
 script/Clone_Analysis/top_lr_pipeline.sh
 ```
 
-The clone-analysis workflow expects the amplicon cell-filtered outputs:
+The clone-analysis workflow expects the amplicon tissue-filtered outputs:
 
 ```text
 <input_dir>/
-├── CA/cellfiltered.csv
-├── RA/cellfiltered.csv
-└── TA/cellfiltered.csv
+├── CA/tissuefiltered.csv
+├── RA/tissuefiltered.csv
+└── TA/tissuefiltered.csv
 ```
 
 It also requires:
@@ -413,9 +430,9 @@ For each SR spot:
 Outputs per label:
 
 ```text
-cellfiltered.n_LR_gt_count.csv
-cellfiltered.n_LR_le_count.csv
-cellfiltered.count_summary.txt
+tissuefiltered.n_LR_gt_count.csv
+tissuefiltered.n_LR_le_count.csv
+tissuefiltered.count_summary.txt
 ```
 
 This step no longer makes spatial plots. It only writes tables and summaries.
@@ -430,7 +447,7 @@ script/Clone_Analysis/python/allele_bank_filter.py
 
 This step:
 
-1. Reads each label's `cellfiltered.csv`.
+1. Reads each label's `tissuefiltered.csv`.
 2. Runs `darlin_core.analyze_sequences` on unique LR sequences.
 3. Compares the resulting mutation strings against the label-specific allele-bank file.
 4. Keeps LR rows whose mutation patterns are not present in the allele bank.
@@ -447,7 +464,7 @@ TA -> allele_bank_Gr_TA.csv.gz, config Tigre
 Output per label:
 
 ```text
-cellfiltered.bank_filtered.csv
+tissuefiltered.bank_filtered.csv
 ```
 
 ### 7.3 Top LR Spatial Plot
@@ -460,7 +477,7 @@ script/Clone_Analysis/python/top_lr_plot.py
 
 The plotter:
 
-1. Reads `cellfiltered.bank_filtered.csv`.
+1. Reads `tissuefiltered.bank_filtered.csv`.
 2. Groups by LR and ranks clones by:
    - number of unique SR spots
    - number of unique UR values
@@ -509,6 +526,7 @@ sample_name/
 │   └── results/
 ├── image/
 │   ├── filtered_results.csv
+│   ├── tissue_mask.png
 │   └── gray.png
 └── amplicon/
     └── results/
@@ -523,10 +541,10 @@ Clone-analysis output layout:
 ```text
 <output_dir>/
 ├── CA/
-│   ├── cellfiltered.n_LR_gt_count.csv
-│   ├── cellfiltered.n_LR_le_count.csv
-│   ├── cellfiltered.count_summary.txt
-│   ├── cellfiltered.bank_filtered.csv
+│   ├── tissuefiltered.n_LR_gt_count.csv
+│   ├── tissuefiltered.n_LR_le_count.csv
+│   ├── tissuefiltered.count_summary.txt
+│   ├── tissuefiltered.bank_filtered.csv
 │   ├── .analyzed_cache.csv
 │   └── top_lr_plots/
 │       ├── topLR_001_srXXX_urXXX.png
@@ -550,7 +568,7 @@ Clone-analysis output layout:
    results/<sample_name>/Solo.out/qc.log
    ```
 
-3. Inspect image registration before trusting cell-filtered plots:
+3. Inspect image registration before trusting tissue-filtered plots:
 
    ```text
    image/result.png
@@ -568,7 +586,7 @@ Clone-analysis output layout:
 5. Inspect clone-analysis intermediate files before interpreting top LR plots:
 
    ```text
-   cellfiltered.count_summary.txt
-   cellfiltered.bank_filtered.csv
+   tissuefiltered.count_summary.txt
+   tissuefiltered.bank_filtered.csv
    top_lr_plots/*_top_lr_plot_manifest.csv
    ```

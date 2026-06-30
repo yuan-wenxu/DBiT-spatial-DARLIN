@@ -25,7 +25,7 @@ LABEL_INFO = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Filter DARLIN cellfiltered.csv files by allele bank only."
+        description="Filter DARLIN tissuefiltered.csv files by allele bank only."
     )
     parser.add_argument(
         "--input-dir",
@@ -222,7 +222,7 @@ def process_label(
     config: str,
     min_sequence_length: int,
 ) -> None:
-    input_path = input_dir / label / "cellfiltered.csv"
+    input_path = input_dir / label / "tissuefiltered.csv"
     if not input_path.exists():
         raise SystemExit(f"Input file not found: {input_path}")
 
@@ -249,7 +249,7 @@ def process_label(
     )
 
     print(f"{label}: {len(frame)} rows -> {len(filtered)} rows after bank filtering")
-    out_path = output_dir / label / "cellfiltered.bank_filtered.csv"
+    out_path = output_dir / label / "tissuefiltered.bank_filtered.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     filtered.to_csv(out_path, index=False)
     print(f"  Saved: {out_path}")

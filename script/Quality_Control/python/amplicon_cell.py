@@ -7,6 +7,12 @@ darlin = ['CA', 'RA', 'TA']
 
 def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config):
     cell_number = pd.read_csv(cell_number_file, header = 0)
+    required = {'x', 'y', 'count', 'in_tissue'}
+    missing = required.difference(cell_number.columns)
+    if missing:
+        raise ValueError(f'Cell-count file is missing columns: {sorted(missing)}')
+    if cell_number['in_tissue'].dtype != bool:
+        cell_number['in_tissue'] = cell_number['in_tissue'].astype(str).str.lower().isin(['true', '1', 'yes'])
     whitelist = [line.strip() for line in open(whitelist_path).readlines()]
     for d in darlin:
         darlin_file = darlin_path + '/' + d + '/' + 'final.csv'
@@ -16,18 +22,24 @@ def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config)
             darlin_data['ybc'] = darlin_data['SR'].str[:8]
             darlin_data['x'] = darlin_data['xbc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)
             darlin_data['y'] = darlin_data['ybc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)        
-            merge_data = (darlin_data.merge(cell_number[['x', 'y', 'count']], on = ['x', 'y']).fillna(0))
-            merge_data = merge_data[merge_data['count'] > 0]
-            merge_data.to_csv(darlin_path + '/' + d + '/' + 'cellfiltered.csv', index = False)
+            merge_data = darlin_data.merge(
+                cell_number[['x', 'y', 'count', 'in_tissue']], on=['x', 'y']
+            )
+            merge_data = merge_data[merge_data['in_tissue']]
+            merge_data.to_csv(darlin_path + '/' + d + '/' + 'tissuefiltered.csv', index = False)
 
             umi_data = merge_data[['x', 'y', 'count', 'UR']]
             umi_data = umi_data.groupby(['x', 'y']).agg({'count': 'first', 'UR': 'nunique'}).reset_index()
             umi_data['umi_count'] = umi_data['UR']
-            plot_scatter(umi_data['count'], umi_data['umi_count'], darlin_path + '/' + d, umi_config)
+            umi_with_cells = umi_data[umi_data['count'] > 0]
+            if not umi_with_cells.empty:
+                plot_scatter(umi_with_cells['count'], umi_with_cells['umi_count'], darlin_path + '/' + d, umi_config)
             plot_frame_filtered(umi_data, darlin_path + '/' + d, plot_config)
 
             darlin_data = merge_data[['x', 'y', 'count', 'n_LR']]
-            plot_scatter(darlin_data['count'], darlin_data['n_LR'], darlin_path + '/' + d, ScatterConfig('Number of cells', 'Number of lineage barcodes', 'Lineage_barcode_distribution', False, True, False, False))
+            darlin_with_cells = darlin_data[darlin_data['count'] > 0]
+            if not darlin_with_cells.empty:
+                plot_scatter(darlin_with_cells['count'], darlin_with_cells['n_LR'], darlin_path + '/' + d, ScatterConfig('Number of cells', 'Number of lineage barcodes', 'Lineage_barcode_distribution', False, True, False, False))
 
             print(d)
             print(f'Spots number: {len(umi_data)}')
@@ -39,7 +51,7 @@ def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config)
             print(f'{darlin_file} does not exist.')
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Plot amplicon data after filtering out spots without cells.')
+    parser = argparse.ArgumentParser(description='Plot amplicon data after filtering spots outside tissue.')
     parser.add_argument('-c', '--cell_number_file', type=str, help='cell number file')
     parser.add_argument('-d', '--darlin_path', type=str, help='data path')
     parser.add_argument('-w', '--whitelist_path', type=str, help='whitelist file')

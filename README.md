@@ -194,7 +194,7 @@ the QC config:
 
 ```bash
 orientation=normal       # normal, horizontal, vertical, or rotate
-swap_xy=False            # True swaps the x and y axes
+swap_xy=False            # True swaps the x and y axes; values are case-insensitive
 ```
 
 Common meanings:

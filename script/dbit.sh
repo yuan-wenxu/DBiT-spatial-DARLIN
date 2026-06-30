@@ -65,8 +65,12 @@ Required:
 Optional:
   --input <path>          Registered input image; required only before stored
   --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
-  --swap-xy <bool>        True or False; required only before stored
+  --swap-xy <bool>        True or False (case-insensitive); required only before stored
   --chip <name>           50-50, 50-20, or 100-20; required only before stored
+
+90-degree rotation combinations:
+  --orientation horizontal --swap-xy True    90 degrees counterclockwise
+  --orientation vertical   --swap-xy True    90 degrees clockwise
 EOF
 }
 
@@ -302,8 +306,9 @@ if [[ "$step" == image ]]; then
             exit 1
             ;;
     esac
-    case "$effective_swap_xy" in
-        True|False) ;;
+    case "${effective_swap_xy,,}" in
+        true) effective_swap_xy=True ;;
+        false) effective_swap_xy=False ;;
         *)
             echo "Error: --swap-xy must be True or False; got '$effective_swap_xy'." >&2
             exit 1
@@ -366,7 +371,7 @@ case "$step" in
             set_config_value gray_path "$output_path/gray.png"
         fi
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
-        [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$cli_swap_xy"
+        [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
         ;;
 esac
 

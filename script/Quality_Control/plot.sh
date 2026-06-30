@@ -37,6 +37,11 @@ fi
 if [[ -z ${orientation:-} || -z ${swap_xy:-} ]]; then
     echo "Error: orientation and swap_xy must first be written by the image step." >&2; exit 1
 fi
+case "${swap_xy,,}" in
+    true) swap_xy=True ;;
+    false) swap_xy=False ;;
+    *) echo "Error: swap_xy must be True or False; got '$swap_xy'." >&2; exit 1 ;;
+esac
 for variable in x_spots_number y_spots_number length_spot interval; do
     if [[ -z ${!variable:-} ]]; then
         echo "Run this script through dbit.sh so --chip is resolved." >&2

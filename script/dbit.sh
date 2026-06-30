@@ -1,14 +1,16 @@
 #!/bin/bash
 set -o pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}") || exit 1
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd) || exit 1
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
+PROGRAM_NAME=$(basename "$0")
 export QC_SCRIPT_DIR REPO_DIR
 
 show_help() {
     cat <<EOF
-Usage: $0 <step> [options]
+Usage: $PROGRAM_NAME <step> [options]
 
 Steps:
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
@@ -16,13 +18,13 @@ Steps:
   image         Segment a registered image and count cells
   plot          Final step: generate cell-filtered plots after image
 
-Run '$0 <step> -h' to show parameters for one step.
+Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
 EOF
 }
 
 show_mrna_help() {
     cat <<EOF
-Usage: $0 mrna --config <file> [options]
+Usage: $PROGRAM_NAME mrna --config <file> [options]
 
 Required:
   --config <file>   Per-dataset configuration file
@@ -39,7 +41,7 @@ EOF
 
 show_amplicon_help() {
     cat <<EOF
-Usage: $0 amplicon --config <file> [options]
+Usage: $PROGRAM_NAME amplicon --config <file> [options]
 
 Required:
   --config <file>   Per-dataset configuration file
@@ -57,7 +59,7 @@ EOF
 
 show_image_help() {
     cat <<EOF
-Usage: $0 image --config <file> [options]
+Usage: $PROGRAM_NAME image --config <file> [options]
 
 Required:
   --config <file>         Per-dataset configuration file
@@ -76,7 +78,7 @@ EOF
 
 show_plot_help() {
     cat <<EOF
-Usage: $0 plot --config <file> [--chip <name>]
+Usage: $PROGRAM_NAME plot --config <file> [--chip <name>]
 
 Required:
   --config <file>   Configuration populated by earlier data steps

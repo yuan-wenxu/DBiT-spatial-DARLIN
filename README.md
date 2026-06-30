@@ -41,6 +41,7 @@ sample_name/
 Main script directories:
 
 ```text
+install-cli.sh
 script/
 ├── dbit.sh
 ├── config.sh
@@ -61,45 +62,54 @@ This project uses `pixi`.
 
 ```bash
 cd /path/to/DBiT-spatial-DARLIN
-pixi install
+pixi run init
+source ~/.bashrc
 ```
 
-The shell entry points call `pixi run -e ...` internally. You do not need to activate the environment manually.
+The `init` task installs all locked Pixi environments and the user-level
+`dbit` command. The shell entry points call `pixi run -e ...` internally, so
+you do not need to activate an environment manually.
 
 Pixi environments:
 
 - `default`: transcriptome, amplicon, filtered plotting, and clone analysis
 - `image`: image splitting and StarDist segmentation
 
-## 3. Recommended Workflow
-
-Run commands from the repository root:
+The installer creates `~/.local/bin/dbit` as a symbolic link to the cloned
+repository. It checks both the current `PATH` and `~/.bashrc`, adding the
+standard `~/.local/bin` PATH entry to `.bashrc` when it is missing. Run the
+printed `source ~/.bashrc` command to update the current shell. Updating the
+clone with `git pull` automatically updates the command. To uninstall it, run:
 
 ```bash
-cd /path/to/DBiT-spatial-DARLIN/script
+rm ~/.local/bin/dbit
 ```
 
-Copy `config.sh` into the dataset directory, or keep the copy in the current
-`script/` directory under a sample-specific name such as `config.sample.sh`.
-Then edit its reference settings and pipeline parameters, and select
-`execution_mode=local` or `execution_mode=hpc`.
+## 3. Recommended Workflow
+
+Commands can be run from any directory after installing the launcher. Copy the
+configuration template from the repository into the dataset directory, or keep
+a sample-specific copy under `script/`:
 
 ```bash
 # Option 1: store the config with the dataset
-cp config.sh /path/to/sample_name/config.sh
-bash dbit.sh mrna --input /path/to/transcriptome/fastq --config /path/to/sample_name/config.sh --chip 50-20
+cp /path/to/DBiT-spatial-DARLIN/script/config.sh /path/to/sample_name/config.sh
+dbit mrna --input /path/to/transcriptome/fastq --config /path/to/sample_name/config.sh --chip 50-20
 
 # Option 2: keep a renamed copy in the script directory
-cp config.sh config.sample.sh
-bash dbit.sh mrna --input /path/to/transcriptome/fastq --config config.sample.sh --chip 50-20
+cp /path/to/DBiT-spatial-DARLIN/script/config.sh /path/to/DBiT-spatial-DARLIN/script/config.sample.sh
+dbit mrna --input /path/to/transcriptome/fastq --config /path/to/DBiT-spatial-DARLIN/script/config.sample.sh --chip 50-20
 ```
+
+Edit the copied reference settings and pipeline parameters, and select
+`execution_mode=local` or `execution_mode=hpc` before running the pipeline.
 
 The mRNA step also accepts an optional STAR genome index override and filtering
 thresholds. Supplied values are appended to the dataset config; omitted values
 keep the config defaults:
 
 ```bash
-bash dbit.sh mrna \
+dbit mrna \
     --input /path/to/transcriptome/fastq \
     --config /path/to/config.sh \
     --chip 50-20 \
@@ -115,7 +125,7 @@ an absolute path and overrides the earlier `genome_dir` value in the config.
 The amplicon step provides its own optional filtering thresholds:
 
 ```bash
-bash dbit.sh amplicon \
+dbit amplicon \
     --input /path/to/amplicon/fastq \
     --config /path/to/config.sh \
     --chip 50-20 \
@@ -132,7 +142,7 @@ On the first image run, provide both orientation parameters; they are stored for
 reuse by later image and plot runs:
 
 ```bash
-bash dbit.sh image \
+dbit image \
     --input /path/to/align.png \
     --config /path/to/config.sh \
     --chip 50-20 \
@@ -148,7 +158,7 @@ Plot is the final QC step. It reads all accumulated
 paths and orientation settings from the dataset config, so it needs no input:
 
 ```bash
-bash dbit.sh plot --config /path/to/config.sh
+dbit plot --config /path/to/config.sh
 ```
 
 The recommended order is `mrna → image → amplicon → plot`. For `mrna`,
@@ -215,22 +225,18 @@ Use the same orientation settings for image splitting and filtered-plot merging 
 Use `-h` or `--help` for the full current interface:
 
 ```bash
-bash dbit.sh -h
-bash dbit.sh mrna -h
-bash dbit.sh amplicon -h
-bash dbit.sh image -h
-bash dbit.sh plot -h
-bash Quality_Control/mrna.sh -h
-bash Quality_Control/image.sh -h
-bash Quality_Control/amplicon.sh -h
-bash Quality_Control/plot.sh -h
+dbit -h
+dbit mrna -h
+dbit amplicon -h
+dbit image -h
+dbit plot -h
 bash Clone_Analysis/top_lr_pipeline.sh -h
 ```
 
-Use `dbit.sh <step> --config <file> [--input <path>] [--chip <name>]` for data
+Use `dbit <step> --config <file> [--input <path>] [--chip <name>]` for data
 steps; `--input` is required only before that step has stored one. Use
-`dbit.sh plot --config <file> [--chip <name>]` for plotting.
-Use `dbit.sh <step> -h` for step-specific command-line parameters; base
+`dbit plot --config <file> [--chip <name>]` for plotting.
+Use `dbit <step> -h` for step-specific command-line parameters; base
 pipeline and SLURM settings are documented inline in the config template.
 
 ### `top_lr_pipeline.sh`

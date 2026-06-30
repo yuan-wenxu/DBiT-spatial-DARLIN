@@ -6,6 +6,7 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
+init = { cmd = "pixi install --all --locked && bash install-cli.sh", description = "Install all environments and the dbit command" }
 
 [dependencies]
 

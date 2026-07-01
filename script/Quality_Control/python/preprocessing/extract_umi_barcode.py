@@ -5,6 +5,7 @@ import argparse
 from collections import namedtuple
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import zip_longest
+from tqdm import tqdm
 
 BARCODE_LEN = 8
 UMI_LEN = 10
@@ -371,7 +372,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
     open_output = gzip.open if gzip_output else open
     open_kwargs = {"compresslevel": compression_level} if gzip_output else {}
 
-    with open_output(f"{output_dir}/{sample}_bc_match_R1{output_suffix}", "wt", **open_kwargs) as out_r1, \
+    with tqdm(desc="Extracting barcode/UMI", unit="batch", dynamic_ncols=True) as progress, \
+         open_output(f"{output_dir}/{sample}_bc_match_R1{output_suffix}", "wt", **open_kwargs) as out_r1, \
          open_output(f"{output_dir}/{sample}_bc_match_R2{output_suffix}", "wt", **open_kwargs) as out_r2, \
          open_fastq_file(reads1) as r1_handle, \
          open_fastq_file(reads2) as r2_handle:
@@ -383,6 +385,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                 add_batch_stats(result, exact_match_stats, fuzzy_match_stats)
                 n_reads += result.n_reads
                 n_reads_passed += result.n_reads_passed
+                progress.update(1)
+                progress.set_postfix(reads=n_reads, passed=n_reads_passed)
         else:
             initargs = (match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map)
             max_pending = max(cores * 2, 1)
@@ -419,6 +423,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                         n_reads += result.n_reads
                         n_reads_passed += result.n_reads_passed
                         next_write_idx += 1
+                        progress.update(1)
+                        progress.set_postfix(reads=n_reads, passed=n_reads_passed)
 
     print(f"Processed {n_reads} reads, {n_reads_passed} reads passed.")
     percent_passed = n_reads_passed / n_reads * 100 if n_reads else 0

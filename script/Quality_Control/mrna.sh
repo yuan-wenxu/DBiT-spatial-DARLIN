@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 show_help() {
     cat << EOF
@@ -185,7 +186,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             -c "$preprocess_cores" \
             -bs "$preprocess_batch_size" \
             -go "$gzip_output" \
-            -bmd "$bc_max_dist" &> "$step1_log" || {
+            -bmd "$bc_max_dist" 2>&1 | tee "$step1_log" || {
                 echo "Error: preprocessing failed for $sample_name; see $step1_log" >&2
                 exit 1
             }
@@ -270,7 +271,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             --soloCellFilter EmptyDrops_CR \
             --soloFeatures GeneFull \
             --bamRemoveDuplicatesType UniqueIdentical \
-            --quantMode GeneCounts &> "$star_results/STAR.log" || {
+            --quantMode GeneCounts 2>&1 | tee "$star_results/STAR.log" || {
                 echo "Error: STAR failed for $sample_name; see $star_results/STAR.log" >&2
                 exit 1
             }
@@ -302,7 +303,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \
-        --pixel_length "$pixel_length" &> "$final_results/Solo.out/qc.log" || {
+        --pixel_length "$pixel_length" 2>&1 | tee "$final_results/Solo.out/qc.log" || {
             echo "Error: mRNA QC failed for $sample_name; see $final_results/Solo.out/qc.log" >&2
             exit 1
         }

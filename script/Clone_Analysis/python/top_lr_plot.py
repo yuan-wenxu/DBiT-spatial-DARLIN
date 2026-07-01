@@ -7,9 +7,6 @@ Plot the largest LR entries from allele-bank-filtered CSV files.
 - cluster background from an mRNA data_tissuefiltered.csv
 - a contrasting hollow circle on spots containing the selected LR
 - circle size split into 3 bins by unique UR count per SR/LR
-
-Usage:
-  python top_lr_plot.py --input-dir /path/to/L126-S7 --labels RA --top-n 10
 """
 
 from __future__ import annotations
@@ -71,6 +68,18 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--x-spots-number",
+        type=int,
+        required=True,
+        help="Number of spots along the x axis in the complete DBiT grid.",
+    )
+    parser.add_argument(
+        "--y-spots-number",
+        type=int,
+        required=True,
+        help="Number of spots along the y axis in the complete DBiT grid.",
+    )
+    parser.add_argument(
         "--orientation",
         choices=["normal", "horizontal", "vertical", "rotate"],
         default="normal",
@@ -81,6 +90,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Swap x and y axes after applying orientation.",
+    )
+    parser.add_argument(
+        "--rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=0,
+        help="Rotate only the plotted spatial grid clockwise for display; the legend is unchanged.",
     )
     parser.add_argument(
         "--cluster-alpha",
@@ -214,6 +230,7 @@ def transform_coordinates(
     y_spots: int,
     orientation: str,
     swap_xy: bool,
+    rotate: int = 0,
 ) -> tuple[pd.DataFrame, int, int]:
     transformed = frame.copy()
     if orientation == "horizontal":
@@ -225,6 +242,19 @@ def transform_coordinates(
         transformed["y"] = y_spots - 1 - transformed["y"]
     if swap_xy:
         transformed["x"], transformed["y"] = transformed["y"].copy(), transformed["x"].copy()
+        x_spots, y_spots = y_spots, x_spots
+    if rotate == 90:
+        old_x = transformed["x"].copy()
+        transformed["x"] = y_spots - 1 - transformed["y"]
+        transformed["y"] = old_x
+        x_spots, y_spots = y_spots, x_spots
+    elif rotate == 180:
+        transformed["x"] = x_spots - 1 - transformed["x"]
+        transformed["y"] = y_spots - 1 - transformed["y"]
+    elif rotate == 270:
+        old_x = transformed["x"].copy()
+        transformed["x"] = transformed["y"]
+        transformed["y"] = x_spots - 1 - old_x
         x_spots, y_spots = y_spots, x_spots
     transformed["plot_x"] = transformed["x"]
     transformed["plot_y"] = transformed["y"]
@@ -268,6 +298,7 @@ def _plot_lr_spatial(
     circle_color: str,
     orientation: str,
     swap_xy: bool,
+    rotate: int,
     cluster_alpha: float,
 ) -> None:
     cluster_frame, plot_x_spots, plot_y_spots = transform_coordinates(
@@ -276,6 +307,7 @@ def _plot_lr_spatial(
         y_spots=y_spots,
         orientation=orientation,
         swap_xy=swap_xy,
+        rotate=rotate,
     )
     lr_spots = (
         lr_data.assign(_ur_clean=lr_data["UR"].astype(str).str.strip())
@@ -295,6 +327,7 @@ def _plot_lr_spatial(
         y_spots=y_spots,
         orientation=orientation,
         swap_xy=swap_xy,
+        rotate=rotate,
     )
     lr_spots["circle_size"] = lr_spots["unique_ur_count"].map(
         lambda count: 30 if count <= 1 else 70 if count == 2 else 140
@@ -422,7 +455,10 @@ def process_label(
     top_n: int,
     orientation: str,
     swap_xy: bool,
+    rotate: int,
     cluster_alpha: float,
+    x_spots: int,
+    y_spots: int,
 ) -> None:
     input_file = resolve_input_path(input_dir, label)
     frame = pd.read_csv(input_file, dtype=str, keep_default_na=False)
@@ -438,8 +474,19 @@ def process_label(
     output_dir = output_root / label / "top_lr_plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    x_spots = max(int(frame["x"].max()), int(cluster_frame["x"].max())) + 1
-    y_spots = max(int(frame["y"].max()), int(cluster_frame["y"].max())) + 1
+    for name, spatial_frame in (("clone", frame), ("cluster", cluster_frame)):
+        outside_grid = (
+            (spatial_frame["x"] < 0)
+            | (spatial_frame["x"] >= x_spots)
+            | (spatial_frame["y"] < 0)
+            | (spatial_frame["y"] >= y_spots)
+        )
+        if outside_grid.any():
+            invalid = spatial_frame.loc[outside_grid, ["x", "y"]].iloc[0]
+            raise SystemExit(
+                f"{name.capitalize()} coordinate ({invalid['x']}, {invalid['y']}) "
+                f"is outside the configured {x_spots}x{y_spots} grid"
+            )
     circle_color = choose_contrasting_circle_color(cluster_frame)
 
     manifest_rows = []
@@ -457,6 +504,7 @@ def process_label(
             circle_color=circle_color,
             orientation=orientation,
             swap_xy=swap_xy,
+            rotate=rotate,
             cluster_alpha=cluster_alpha,
         )
         manifest_rows.append(
@@ -479,6 +527,8 @@ def process_label(
 
 def main() -> None:
     args = parse_args()
+    if args.x_spots_number <= 0 or args.y_spots_number <= 0:
+        raise SystemExit("x/y spots number must be positive integers")
     input_dir = Path(args.input_dir)
     output_root = Path(args.output_dir) if args.output_dir else input_dir
     cluster_csv = Path(args.cluster_csv)
@@ -495,7 +545,10 @@ def main() -> None:
             top_n=args.top_n,
             orientation=args.orientation,
             swap_xy=args.swap_xy,
+            rotate=args.rotate,
             cluster_alpha=args.cluster_alpha,
+            x_spots=args.x_spots_number,
+            y_spots=args.y_spots_number,
         )
 
 

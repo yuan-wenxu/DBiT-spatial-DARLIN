@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 show_help() {
     cat << EOF
@@ -37,6 +38,7 @@ swap_xy=${swap_xy}
 min_sequence_length=${min_sequence_length}
 IFS=',' read -r -a labels <<< "${clone_labels:-CA,RA,TA}"
 top_n=${clone_top_n:-10}
+rotate=${clone_rotate:-0}
 
 
 # Validate required config variables
@@ -52,6 +54,10 @@ if [[ -z "$cluster_csv" ]]; then
     echo "Error: cluster_csv must be set in the config." >&2
     exit 1
 fi
+if [[ -z ${x_spots_number:-} || -z ${y_spots_number:-} ]]; then
+    echo "Run this script through dbit.sh so the chip grid dimensions are resolved." >&2
+    exit 1
+fi
 case "$orientation" in
     normal|horizontal|vertical|rotate) ;;
     *)
@@ -64,6 +70,13 @@ case "${swap_xy,,}" in
     false) swap_xy=False ;;
     *)
         echo "Error: swap_xy must be True or False; got '$swap_xy'." >&2
+        exit 1
+        ;;
+esac
+case "$rotate" in
+    0|90|180|270) ;;
+    *)
+        echo "Error: clone_rotate must be 0, 90, 180, or 270; got '$rotate'." >&2
         exit 1
         ;;
 esac
@@ -85,7 +98,10 @@ run_pixi python "$PYTHON_DIR/allele_bank_filter.py" \
 run_pixi python "$PYTHON_DIR/top_lr_plot.py" \
     --input-dir "$input_dir" \
     --cluster-csv "$cluster_csv" \
+    --x-spots-number "$x_spots_number" \
+    --y-spots-number "$y_spots_number" \
     --top-n "$top_n" \
     --orientation "$orientation" \
+    --rotate "$rotate" \
     --labels "${labels[@]}" \
     $([ "$swap_xy" = True ] && printf %s --swap_xy) || exit 1

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 show_help() {
     cat << EOF
@@ -151,7 +152,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         -cl "$compression_level" -cut "$cutadapt" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
         -go "$gzip_output" \
-        -cb "false" &> "$output_path/${sample_name}_preprocess.log" || {
+        -cb "false" 2>&1 | tee "$output_path/${sample_name}_preprocess.log" || {
             echo "Error: preprocessing failed for $sample_name; see $output_path/${sample_name}_preprocess.log" >&2
             exit 1
         }
@@ -181,7 +182,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --major-fraction-threshold-molecule "$major_fraction_threshold_molecule" \
         --reads-fraction-mode "$reads_fraction_mode" \
         --final-reads-cutoff "$reads_cutoff" \
-        --slope-cutoff "$slope_cutoff" &> "$results/dbit.log" || {
+        --slope-cutoff "$slope_cutoff" 2>&1 | tee "$results/dbit.log" || {
             echo "Error: amplicon analysis failed for $sample_name; see $results/dbit.log" >&2
             exit 1
         }

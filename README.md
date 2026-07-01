@@ -1,64 +1,60 @@
-## DBiT-spatial-DARLIN
+# DBiT-spatial-DARLIN
 
 Version 0.2.0
 
-This repository contains scripts for DBiT spatial DARLIN data processing and quality control across three data types:
+DBiT-spatial-DARLIN is a quality-control and clone-analysis pipeline for DBiT
+spatial transcriptome, registered tissue image, and DARLIN amplicon data.
 
-- transcriptome FASTQ data
-- registered tissue images
-- DARLIN amplicon FASTQ data
+For implementation details, see the
+[technical documentation](docs/TECHNICAL_DOCUMENTATION.md). For coordinate
+orientation examples, see [orientation handling](docs/ORIENTATION.md).
 
-It also includes a clone-analysis workflow that filters DARLIN clone calls and plots top LR clones on an mRNA Leiden-cluster background.
+## Expected data organization
 
-Detailed references:
-
-- [Technical documentation](docs/TECHNICAL_DOCUMENTATION.md)
-- [Orientation handling](docs/ORIENTATION.md)
-
-## 1. Project Layout
-
-Recommended input layout:
+Organize each dataset as follows:
 
 ```text
 sample_name/
-├── amplicon/
+├── config.sh
+├── transcriptome/
 │   └── fastq/
-│       ├── *_CA_R1.fq.gz
-│       ├── *_CA_R2.fq.gz
-│       ├── *_RA_R1.fq.gz
-│       ├── *_RA_R2.fq.gz
-│       ├── *_TA_R1.fq.gz
-│       └── *_TA_R2.fq.gz
+│       ├── <sample>_R1.fq.gz
+│       └── <sample>_R2.fq.gz
 ├── image/
 │   ├── align.png
 │   └── gray.png
-└── transcriptome/
+└── amplicon/
     └── fastq/
-        ├── *_R1.fq.gz
-        └── *_R2.fq.gz
+        ├── <sample>_CA_R1.fq.gz
+        ├── <sample>_CA_R2.fq.gz
+        ├── <sample>_RA_R1.fq.gz
+        ├── <sample>_RA_R2.fq.gz
+        ├── <sample>_TA_R1.fq.gz
+        └── <sample>_TA_R2.fq.gz
 ```
 
-Main script directories:
+The amplicon filenames must contain `CA`, `RA`, or `TA` so the locus can be
+identified. Clone analysis also requires an allele-bank directory containing
+one `.csv`, `.csv.gz`, `.tsv`, or `.tsv.gz` file per locus. Each bank filename
+must contain the corresponding uppercase `CA`, `RA`, or `TA` label.
 
-```text
-install-cli.sh
-script/
-├── dbit.sh
-├── config.sh
-├── Quality_Control/
-│   ├── mrna.sh
-│   ├── image.sh
-│   ├── amplicon.sh
-│   ├── plot.sh
-│   └── python/
-└── Clone_Analysis/
-    ├── top_lr_pipeline.sh
-    └── python/
+`align.png` is the cropped registered image produced by manually aligning the
+tissue image with the spatial transcriptome result. It is used as the input to
+the image QC step. `gray.png` is the corresponding grayscale tissue image used
+as the background for merged spatial plots.
+
+## Installation and configuration
+
+The project uses [Pixi](https://pixi.prefix.dev/latest/installation/) for
+environment and dependency management. Install Pixi first on Linux or macOS:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+source ~/.bashrc
 ```
 
-## 2. Environment
-
-This project uses `pixi`.
+After installation, enter the repository and install the locked project
+environments and the user-level `dbit` command:
 
 ```bash
 cd /path/to/DBiT-spatial-DARLIN
@@ -66,226 +62,127 @@ pixi run init
 source ~/.bashrc
 ```
 
-The `init` task installs all locked Pixi environments and the user-level
-`dbit` command. The shell entry points call `pixi run -e ...` internally, so
-you do not need to activate an environment manually.
-
-Pixi environments:
-
-- `default`: transcriptome, amplicon, filtered plotting, and clone analysis
-- `image`: image splitting and StarDist segmentation
-
-The installer creates `~/.local/bin/dbit` as a symbolic link to the cloned
-repository. It checks both the current `PATH` and `~/.bashrc`, adding the
-standard `~/.local/bin` PATH entry to `.bashrc` when it is missing. Run the
-printed `source ~/.bashrc` command to update the current shell. Updating the
-clone with `git pull` automatically updates the command. To uninstall it, run:
+Copy the configuration template for each dataset:
 
 ```bash
-rm ~/.local/bin/dbit
-```
-
-## 3. Recommended Workflow
-
-Commands can be run from any directory after installing the launcher. Copy the
-configuration template from the repository into the dataset directory, or keep
-a sample-specific copy under `script/`:
-
-```bash
-# Option 1: store the config with the dataset
 cp /path/to/DBiT-spatial-DARLIN/script/config.sh /path/to/sample_name/config.sh
-dbit mrna --input /path/to/transcriptome/fastq --config /path/to/sample_name/config.sh --chip 50-20
-
-# Option 2: keep a renamed copy in the script directory
-cp /path/to/DBiT-spatial-DARLIN/script/config.sh /path/to/DBiT-spatial-DARLIN/script/config.sample.sh
-dbit mrna --input /path/to/transcriptome/fastq --config /path/to/DBiT-spatial-DARLIN/script/config.sample.sh --chip 50-20
 ```
 
-Edit the copied reference settings and pipeline parameters, and select
-`execution_mode=local` or `execution_mode=hpc` before running the pipeline.
+Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
+mode, and SLURM resources where applicable. Use `execution_mode=local` for a
+local run or `execution_mode=hpc` for SLURM submission.
 
-The mRNA step also accepts an optional STAR genome index override and filtering
-thresholds. Supplied values are appended to the dataset config; omitted values
-keep the config defaults:
+## Usage
+
+The recommended order is:
+
+```text
+mrna → image → amplicon → plot → clone
+```
+
+### mRNA QC
+
+Preprocess transcriptome FASTQs, run STAR, calculate QC metrics, and generate
+spatial expression and clustering results.
 
 ```bash
 dbit mrna \
-    --input /path/to/transcriptome/fastq \
-    --config /path/to/config.sh \
-    --chip 50-20 \
-    --genome-dir /path/to/another/STAR_genome_index \
-    --umi-min 900 \
-    --gene-min 300 \
-    --min-cell 3
+    --config /path/to/sample_name/config.sh \
+    --input /path/to/sample_name/transcriptome/fastq \
+    --chip 50-20
 ```
 
-These options are accepted only by the `mrna` step. `--genome-dir` is stored as
-an absolute path and overrides the earlier `genome_dir` value in the config.
+### Image QC
 
-The amplicon step provides its own optional filtering thresholds:
-
-```bash
-dbit amplicon \
-    --input /path/to/amplicon/fastq \
-    --config /path/to/config.sh \
-    --chip 50-20 \
-    --initial-reads-cutoff 100 \
-    --major-fraction-threshold-molecule 0.8 \
-    --reads-cutoff 10 \
-    --slope-cutoff 10
-```
-
-These options are accepted only by the `amplicon` step and are appended to the
-dataset config when supplied.
-
-On the first image run, provide both orientation parameters; they are stored for
-reuse by later image and plot runs:
+Segment the registered image, count cells per spatial spot, and generate the
+tissue mask used by later filtering.
 
 ```bash
 dbit image \
-    --input /path/to/align.png \
-    --config /path/to/config.sh \
-    --chip 50-20 \
-    --orientation horizontal \
-    --swap-xy True
+    --config /path/to/sample_name/config.sh \
+    --input /path/to/sample_name/image/align.png \
+    --orientation normal \
+    --swap-xy False
 ```
 
-These options are accepted only by the `image` step. A later image run may omit
-either value when it is already stored in the dataset config. The plot step also
-reads the stored values and fails if they are absent.
+### Amplicon QC
 
-Plot is the final QC step. It reads all accumulated
-paths and orientation settings from the dataset config, so it needs no input:
+Preprocess DARLIN amplicon FASTQs, correct barcodes, filter lineage records,
+and generate per-locus results.
 
 ```bash
-dbit plot --config /path/to/config.sh
+dbit amplicon \
+    --config /path/to/sample_name/config.sh \
+    --input /path/to/sample_name/amplicon/fastq
 ```
 
-The recommended order is `mrna → image → amplicon → plot → clone`. For `mrna`,
-`image`, and `amplicon`, the first `--input` value and its derived result paths
-are stored in the dataset config. Later runs may omit `--input` to reuse the
-stored step-specific path, or supply a new path to override it.
+### Tissue-filtered plots
 
-`--chip` selects one of three presets defined in `dbit.sh`:
-
-- `50-50`: 50x50 spots, spot length 50, interval 50
-- `50-20`: 50x50 spots, spot length 20, interval 20
-- `100-20`: 100x100 spots, spot length 20, interval 20
-
-The selected chip name is appended to the per-dataset config. After it has been
-written once, later steps may omit `--chip`; supplying it again appends a newer
-selection. Grid dimensions remain defined only in `dbit.sh`.
-
-The matching 50- or 100-barcode whitelist is selected automatically. Invoke
-`dbit.sh` once per step that should be run or submitted.
-
-The unified launcher passes the resolved chip settings to each independent QC
-job. Chip presets are not duplicated in the config or worker scripts.
-
-### Clone Analysis
+Apply image-derived cell/tissue filtering to the mRNA and amplicon results and
+merge spatial overlays with the grayscale tissue image.
 
 ```bash
-dbit clone \
-    --config /path/to/config.sh \
-    --bank-dir /path/to/allele_bank
+dbit plot --config /path/to/sample_name/config.sh
 ```
 
-By default, `dbit clone` reads its clone input from the stored `amp_dir` and
-its Leiden background from `<mrna_dir>/raw/data_tissuefiltered.csv`. The first
-`--bank-dir` value is stored in the dataset config, so later runs can use only
-`dbit clone --config /path/to/config.sh`.
+### Clone analysis
 
-This workflow:
-
-1. filters LR sequences against label-specific allele-bank files;
-2. plots the top LR clones on the mRNA Leiden cluster background.
-
-## 4. Orientation
-
-`image.sh` and `plot.sh` read the same orientation values from
-the QC config:
+Filter clone calls against the locus-specific allele banks and plot the top LR
+clones over the mRNA Leiden-cluster background.
 
 ```bash
-orientation=normal       # normal, horizontal, vertical, or rotate
-swap_xy=False            # True swaps the x and y axes; values are case-insensitive
+dbit clone --config /path/to/sample_name/config.sh
 ```
 
-Common meanings:
+For presentation, rotate only the clone grid while leaving its legends fixed:
 
-- `normal`: no coordinate transform
-- `horizontal`: left-right flip
-- `vertical`: top-bottom flip
-- `rotate`: 180-degree rotation
-- `orientation=horizontal` with `swap_xy=True`: 90 degrees counterclockwise
-- `orientation=vertical` with `swap_xy=True`: 90 degrees clockwise
+```bash
+dbit clone --config /path/to/sample_name/config.sh --rotate 90
+```
 
-Use the same orientation settings for image splitting and filtered-plot merging whenever possible. See [ORIENTATION.md](docs/ORIENTATION.md) for schematic examples.
-
-Clone analysis reads `orientation` and `swap_xy` from the dataset config (set by the image step), matching the QC pipeline conventions.
-
-## 5. Script Interfaces
-
-Use `-h` or `--help` for the full current interface:
+The first input path and chip selection are stored in the dataset config and
+reused by later commands. Current options and filtering thresholds are listed
+by the command-line help:
 
 ```bash
 dbit -h
 dbit mrna -h
-dbit amplicon -h
 dbit image -h
+dbit amplicon -h
 dbit plot -h
 dbit clone -h
 ```
 
-Use `dbit <step> --config <file> [--input <path>] [--chip <name>]` for data
-steps; `--input` is required only before that step has stored one. Use
-`dbit plot --config <file> [--chip <name>]` for plotting.
-Use `dbit clone --config <file> [options]` for clone analysis; it does not
-require a chip setting.
-Use `dbit <step> -h` for step-specific command-line parameters; base
-pipeline and SLURM settings are documented inline in the config template.
+## Output organization
 
-### `top_lr_pipeline.sh`
-
-The standalone pipeline script takes a single config file argument:
-
-```bash
-Clone_Analysis/top_lr_pipeline.sh /path/to/config.sh
-```
-
-All parameters are read from the config file. See `Clone_Analysis/top_lr_pipeline.sh -h` for details.
-
-## 6. Outputs
-
-Typical output layout:
+After completing the workflow, the main outputs are organized as follows:
 
 ```text
 sample_name/
+├── config.sh
 ├── transcriptome/
+│   ├── fastq/
+│   ├── fastq_umi_barcode/
 │   └── results/
+│       └── <sample>/
+│           └── Solo.out/
 ├── image/
 │   ├── filtered_results.csv
 │   ├── tissue_mask.png
-│   └── gray.png
+│   └── result.png
 └── amplicon/
+    ├── fastq/
+    ├── fastq_umi_barcode/
     └── results/
-        └── sample_name/
+        └── <sample>/
             ├── CA/
+            │   ├── final.csv
+            │   ├── tissuefiltered.csv
+            │   ├── tissuefiltered.bank_filtered.csv
+            │   └── top_lr_plots/
             ├── RA/
             └── TA/
 ```
 
-Clone-analysis outputs are written under the selected `--output-dir`:
-
-```text
-<output_dir>/
-├── CA/
-│   ├── tissuefiltered.n_LR_gt_count.csv
-│   ├── tissuefiltered.n_LR_le_count.csv
-│   ├── tissuefiltered.count_summary.txt
-│   ├── tissuefiltered.bank_filtered.csv
-│   └── top_lr_plots/
-│       ├── topLR_001_srXXX_urXXX.png
-│       └── CA_top_lr_plot_manifest.csv
-├── RA/
-└── TA/
-```
+The dataset config is updated with the resolved input and result paths so later
+steps can reuse outputs from earlier steps.

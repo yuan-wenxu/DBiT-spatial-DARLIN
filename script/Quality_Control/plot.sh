@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 show_help() {
     cat << EOF
@@ -126,7 +127,7 @@ if [ -n "$mrna_dir" ]; then
             --length_spot "$length_spot" \
             --interval "$interval" \
             --pixel_length "$pixel_length"
-    ) &> "$mrna_dir/filtered_plot.log" || exit 1
+    ) 2>&1 | tee "$mrna_dir/filtered_plot.log" || exit 1
     merge_with_gray "$mrna_dir" || exit 1
 fi
 
@@ -143,6 +144,6 @@ if [ -n "$amp_dir" ]; then
             --length_spot "$length_spot" \
             --interval "$interval" \
             --pixel_length "$pixel_length"
-    ) &> "$amp_dir/filtered_plot.log" || exit 1
+    ) 2>&1 | tee "$amp_dir/filtered_plot.log" || exit 1
     merge_with_gray "$amp_dir" || exit 1
 fi

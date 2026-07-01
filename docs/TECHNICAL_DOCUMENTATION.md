@@ -4,18 +4,15 @@ This document describes the implementation details of the DBiT-spatial-DARLIN pr
 
 ## 1. Pipeline Scope
 
-The repository contains two related workflows:
+The pipeline contains five user-facing steps:
 
-1. Quality control for DBiT spatial data:
-   - transcriptome FASTQ processing and spatial mRNA QC
-   - registered image splitting and StarDist cell counting
-   - DARLIN amplicon FASTQ processing and spatial clone-call QC
-   - tissue-filtered visualization and optional image merging
-2. Clone analysis:
-   - filter LR sequences against allele-bank definitions
-   - plot the top LR clones on the mRNA Leiden cluster background
+- `mrna`: preprocess transcriptome FASTQs, run STARsolo, and perform spatial QC.
+- `image`: split the registered image and count cells with StarDist.
+- `amplicon`: process DARLIN amplicon FASTQs and generate clone-call tables.
+- `plot`: apply tissue filtering and merge spatial plots with the image.
+- `clone`: filter LR sequences against allele banks and plot the top clones.
 
-Primary shell entry points:
+The corresponding shell entry points are:
 
 ```text
 script/dbit.sh
@@ -23,40 +20,15 @@ script/Quality_Control/mrna.sh
 script/Quality_Control/image.sh
 script/Quality_Control/amplicon.sh
 script/Quality_Control/plot.sh
-script/Clone_Analysis/top_lr_pipeline.sh
+script/Clone_Analysis/clone.sh
 ```
 
-`dbit.sh` is the single-step local/SLURM launcher. For `mrna`, `amplicon`, and
-`image`, it receives an input path through `--input` and appends that input plus
-derived result paths to the per-dataset config. Later runs may omit `--input`
-and reuse the path stored for that step. The final `plot` step runs after image,
-reads those accumulated paths, and therefore needs no separate input. The
-`clone` step runs `top_lr_pipeline.sh`, defaults to the stored `amp_dir` and
-`mrna_dir`, and stores command-line overrides for reuse. `--chip`
-accepts `50-50`, `50-20`, or
-`100-20`. Chip dimensions and whitelist selection are defined only in that
-launcher and exported to the selected worker job. All shell entry points run
-Python modules through `pixi run -e <env>`.
-
-The selected chip name is also appended to the per-dataset config. Later steps
-may omit `--chip` and reuse that value; a new command-line value is appended as
-the latest selection. Grid dimensions remain centralized in `dbit.sh`.
-
-The mRNA step optionally accepts `--genome-dir`, `--umi-min`, `--gene-min`, and
-`--min-cell`; provided values are appended to the per-dataset config before
-submission and are rejected for other steps. The genome directory override is
-stored as an absolute path. The amplicon step similarly accepts
-`--initial-reads-cutoff`, `--major-fraction-threshold-molecule`,
-`--reads-cutoff`, and `--slope-cutoff`, all restricted to that step. Image runs
-require `--orientation` and `--swap-xy` only when the corresponding values are
-not already stored; command-line values are appended so later image and plot
-runs use the same transformation. These options are rejected for all non-image
-steps, and plot fails if image has not stored them.
-
-Clone analysis is also available through `dbit clone`. Like the QC plot step, it
-sources the config file and reads all parameters from it, including `clone_labels`
-and `clone_top_n`. The launcher uses the `default`
-Pixi environment and the clone SLURM settings from the config.
+`dbit.sh` launches one step locally or through SLURM. It stores resolved input
+and result paths, chip selection, orientation, and selected command-line
+overrides in a per-dataset config so later steps can reuse them. Chip grid
+dimensions and whitelist selection are resolved centrally by the launcher and
+exported to worker scripts. Python commands run through the appropriate Pixi
+environment.
 
 ## 2. Shared Concepts
 
@@ -76,12 +48,16 @@ Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode an
 
 ### Orientation Parameters
 
-`image.sh` and `plot.sh` share orientation controls:
+`image.sh`, `plot.sh`, and clone analysis share orientation controls:
 
 The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
 or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
 
 These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis pipeline reads `orientation` and `swap_xy` from the same shared config, matching the QC pipeline conventions.
+
+Clone `--rotate` is separate from orientation alignment. It rotates only the
+final top-LR spatial grid clockwise by `0`, `90`, `180`, or `270` degrees for
+presentation; it does not rotate the photographed image or the plot legends.
 
 ## 3. Transcriptome Workflow
 
@@ -289,6 +265,9 @@ Important preprocessing parameters:
 - `linker1`, `linker2`, `mm_rate`: linker matching.
 - `gzip_output`, `gzip_after_preprocess`: output compression behavior.
 
+Amplicon preprocessing and correction output is displayed in the terminal
+while also being written to `<sample>_preprocess.log` and `dbit.log`.
+
 ### 5.2 DARLIN Correction
 
 After preprocessing, the shell script calls:
@@ -308,6 +287,9 @@ The correction workflow:
 7. Compute SR-level reads-per-UMI slope `k = n_reads / n_UR`.
 8. Filter low-quality SR groups with `--slope_cutoff`.
 9. Filter final rows with `--final-reads-cutoff`.
+
+`reads_fraction_mode` selects whether the major-LR fraction denominator uses
+the sum of LR read counts (`sum`) or the maximum LR read count (`max`).
 
 Important columns:
 
@@ -347,8 +329,8 @@ This step combines image-derived tissue membership and retained cell-count
 information with mRNA and/or amplicon spatial results. Spots are filtered by
 `in_tissue`; cell counts remain available for cell-based summaries.
 
-The primary input is passed on the command line; additional plotting paths are
-set in the shared QC config:
+All plotting paths are read from the shared dataset config; the `plot` step
+does not accept a separate input path:
 
 - `cell_number_file`: appended to the dataset config by the image step; usually `image/filtered_results.csv`
 - `tissue_mask_file`: whole-image binary mask, usually `image/tissue_mask.png`
@@ -395,13 +377,15 @@ Key amplicon outputs are written per locus:
 
 When `gray.png` is available, `merge_on_gray.py` transforms each `*_filtered.png` image according to `--orientation` and `--swap_xy`, resizes the grayscale background, and composites the overlay on top.
 
+The mRNA and amplicon filtered-plot commands write to `filtered_plot.log` and
+print the same output to the terminal.
+
 ## 7. Clone Analysis
 
 Entry point:
 
 ```text
-script/dbit.sh clone
-script/Clone_Analysis/top_lr_pipeline.sh
+script/Clone_Analysis/clone.sh
 ```
 
 The clone-analysis workflow reads its parameters from the config file set by
@@ -416,7 +400,9 @@ earlier steps. It expects the amplicon tissue-filtered outputs (from `amp_dir`):
 
 It also requires (from `bank_dir` and `cluster_csv` in config):
 
-- an allele-bank directory containing one CSV/TSV file (optionally gzip-compressed) for each locus; filenames must contain the corresponding uppercase `CA`, `RA`, or `TA` label
+- an allele-bank directory containing one `.csv`, `.csv.gz`, `.tsv`, or
+  `.tsv.gz` file for each locus; filenames must contain the corresponding
+  uppercase `CA`, `RA`, or `TA` label
 - an mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
 
 ### 7.1 Allele-Bank Filter
@@ -476,7 +462,13 @@ The plotter:
 Plot details:
 
 - `--cluster-alpha` controls both Leiden background opacity and the cluster legend opacity.
+- Transformations are applied in this order: stored `orientation`, stored
+  `swap_xy`, then clone-only `--rotate`.
 - `--orientation <mode>` and `--swap-xy` control spot coordinate orientation, matching the QC pipeline conventions.
+- `--rotate <0|90|180|270>` applies an additional clockwise rotation to the spatial grid for presentation without rotating the legends.
+- `--x-spots-number` and `--y-spots-number` receive the complete chip grid
+  dimensions resolved by `dbit.sh`. Clone and cluster coordinates are rejected
+  if they fall outside that grid.
 - Titles are formatted into a fixed-height area so output PNG dimensions stay constant.
 - Edge padding and unclipped LR circles are used so boundary circles are not cut off.
 
@@ -521,11 +513,9 @@ sample_name/
 Clone-analysis output layout:
 
 ```text
-<output_dir>/
+<amp_dir>/
 ├── CA/
-│   ├── tissuefiltered.n_LR_gt_count.csv
-│   ├── tissuefiltered.n_LR_le_count.csv
-│   ├── tissuefiltered.count_summary.txt
+│   ├── tissuefiltered.csv
 │   ├── tissuefiltered.bank_filtered.csv
 │   ├── .analyzed_cache.csv
 │   └── top_lr_plots/
@@ -568,7 +558,6 @@ Clone-analysis output layout:
 5. Inspect clone-analysis intermediate files before interpreting top LR plots:
 
    ```text
-   tissuefiltered.count_summary.txt
    tissuefiltered.bank_filtered.csv
    top_lr_plots/*_top_lr_plot_manifest.csv
    ```

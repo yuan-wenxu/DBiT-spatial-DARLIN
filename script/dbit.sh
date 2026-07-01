@@ -34,7 +34,6 @@ Required:
 Optional:
   --input <path>         Transcriptome FASTQ directory; required only before stored
   --chip <name>          50-50, 50-20, or 100-20; required only before stored
-  --genome-dir <path>    STAR genome index directory; overrides the config value
   --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
   --gene-min <int>       Non-negative minimum gene count per spot (default: 300)
   --min-cell <int>       Positive minimum cells per gene (default: 3)
@@ -98,8 +97,9 @@ Required:
   --config <file>     Configuration populated by earlier data steps
 
 Optional:
-  --labels <list>     Comma-separated labels (default: CA,RA,TA)
-  --top-n <int>       Positive number of LR plots per label (default: 10)
+  --labels <list>      Comma-separated labels (default: CA,RA,TA)
+  --top-n <int>        Positive number of LR plots per label (default: 10)
+  --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270 (default: 0)
 EOF
 }
 
@@ -140,7 +140,6 @@ chip_from_cli=false
 cli_umi_min=""
 cli_gene_min=""
 cli_min_cell=""
-cli_genome_dir=""
 cli_initial_reads_cutoff=""
 cli_major_fraction_threshold_molecule=""
 cli_reads_fraction_mode=""
@@ -150,6 +149,7 @@ cli_orientation=""
 cli_swap_xy=""
 cli_clone_labels=""
 cli_top_n=""
+cli_rotate=""
 
 require_option_value() {
     if [[ $# -lt 2 || $2 == --* ]]; then
@@ -163,7 +163,6 @@ while [[ $# -gt 0 ]]; do
         --input) require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
         --config) require_option_value "$@"; config_file=$2; shift 2 ;;
         --chip) require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
-        --genome-dir) require_option_value "$@"; cli_genome_dir=$2; shift 2 ;;
         --umi-min) require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
         --gene-min) require_option_value "$@"; cli_gene_min=$2; shift 2 ;;
         --min-cell) require_option_value "$@"; cli_min_cell=$2; shift 2 ;;
@@ -176,6 +175,7 @@ while [[ $# -gt 0 ]]; do
         --swap-xy) require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
         --labels) require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
         --top-n) require_option_value "$@"; cli_top_n=$2; shift 2 ;;
+        --rotate) require_option_value "$@"; cli_rotate=$2; shift 2 ;;
         -h|--help) show_step_help "$step"; exit 0 ;;
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
@@ -225,10 +225,6 @@ if [[ "$step" != mrna && ( -n "$cli_umi_min" || -n "$cli_gene_min" || -n "$cli_m
     echo "Error: --umi-min, --gene-min, and --min-cell can only be used with the mrna step." >&2
     exit 1
 fi
-if [[ "$step" != mrna && -n "$cli_genome_dir" ]]; then
-    echo "Error: --genome-dir can only be used with the mrna step." >&2
-    exit 1
-fi
 if [[ "$step" != amplicon && ( -n "$cli_initial_reads_cutoff" || -n "$cli_major_fraction_threshold_molecule" || -n "$cli_reads_fraction_mode" || -n "$cli_reads_cutoff" || -n "$cli_slope_cutoff" ) ]]; then
     echo "Error: amplicon filtering options can only be used with the amplicon step." >&2
     exit 1
@@ -237,8 +233,8 @@ if [[ "$step" != image && ( -n "$cli_orientation" || -n "$cli_swap_xy" ) ]]; the
     echo "Error: --orientation and --swap-xy can only be used with the image step." >&2
     exit 1
 fi
-if [[ "$step" != clone && ( -n "$cli_clone_labels" || -n "$cli_top_n" ) ]]; then
-    echo "Error: --labels and --top-n can only be used with the clone step." >&2
+if [[ "$step" != clone && ( -n "$cli_clone_labels" || -n "$cli_top_n" || -n "$cli_rotate" ) ]]; then
+    echo "Error: --labels, --top-n, and --rotate can only be used with the clone step." >&2
     exit 1
 fi
 if [[ "$step" == plot && -n "$input_path" ]]; then
@@ -258,6 +254,15 @@ validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_thres
 validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
 validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
 validate_positive_integer --top-n "$cli_top_n"
+if [[ -n "$cli_rotate" ]]; then
+    case "$cli_rotate" in
+        0|90|180|270) ;;
+        *)
+            echo "Error: --rotate must be 0, 90, 180, or 270; got '$cli_rotate'." >&2
+            exit 1
+            ;;
+    esac
+fi
 if [[ -n "$cli_reads_fraction_mode" ]]; then
     case "$cli_reads_fraction_mode" in
         sum|max) ;;
@@ -311,16 +316,12 @@ if [[ "$step" != plot && "$step" != clone && -z "$input_path" ]]; then
     exit 1
 fi
 if [[ "$step" == mrna ]]; then
-    effective_genome_dir=${cli_genome_dir:-${genome_dir:-}}
-    if [[ -n "$cli_genome_dir" ]]; then
-        effective_genome_dir=$(realpath -m "$cli_genome_dir")
-    fi
-    if [[ -z "$effective_genome_dir" ]]; then
-        echo "Error: --genome-dir is required the first time; no genome_dir is stored in $config_abs." >&2
+    if [[ -z ${genome_dir:-} ]]; then
+        echo "Error: genome_dir must be set in $config_abs." >&2
         exit 1
     fi
-    if [[ ! -d "$effective_genome_dir" ]]; then
-        echo "Error: genome directory does not exist: $effective_genome_dir" >&2
+    if [[ ! -d "$genome_dir" ]]; then
+        echo "Error: genome directory does not exist: $genome_dir" >&2
         exit 1
     fi
 fi
@@ -374,7 +375,6 @@ case "$step" in
             set_config_value mrna_dir "$output_path/results/$sample_name/Solo.out/GeneFull"
             set_config_value cluster_csv "$output_path/results/$sample_name/Solo.out/GeneFull/raw/data_tissuefiltered.csv"
         fi
-        [[ -n "$cli_genome_dir" ]] && set_config_value genome_dir "$effective_genome_dir"
         [[ -n "$cli_umi_min" ]] && set_config_value umi_min "$cli_umi_min"
         [[ -n "$cli_gene_min" ]] && set_config_value gene_min "$cli_gene_min"
         [[ -n "$cli_min_cell" ]] && set_config_value min_cells "$cli_min_cell"
@@ -414,6 +414,7 @@ case "$step" in
     clone)
         [[ -n "$cli_clone_labels" ]] && set_config_value clone_labels "$cli_clone_labels"
         [[ -n "$cli_top_n" ]] && set_config_value clone_top_n "$cli_top_n"
+        [[ -n "$cli_rotate" ]] && set_config_value clone_rotate "$cli_rotate"
         ;;
 esac
 
@@ -465,7 +466,7 @@ case "$step" in
         memory=$sbatch_plot_mem; walltime=$sbatch_plot_time
         ;;
     clone)
-        script="$LR_SCRIPT_DIR/top_lr_pipeline.sh"
+        script="$LR_SCRIPT_DIR/clone.sh"
         cpus=${sbatch_clone_cpus}; partition=${sbatch_clone_partition}
         memory=${sbatch_clone_mem}; walltime=${sbatch_clone_time}
         ;;

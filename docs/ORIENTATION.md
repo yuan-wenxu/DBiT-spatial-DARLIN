@@ -1,6 +1,8 @@
 # Orientation Handling
 
-This document explains the orientation parameters used by `image.sh` and `plot.sh`, and how to choose the correct setting with the schematic images.
+This document explains the orientation parameters used by `image.sh`,
+`plot.sh`, and clone analysis, and how to choose the correct setting with the
+schematic images.
 
 Pass both required values to the image step:
 
@@ -10,8 +12,8 @@ Pass both required values to the image step:
 These parameters are used when the image coordinate system, spatial barcode coordinate system, and final visualization direction do not match.
 
 `dbit.sh image` appends both values to the per-dataset config. The later plot
-step consumes those stored values and does not accept separate orientation
-arguments.
+and clone steps consume those stored values and do not accept separate
+orientation arguments.
 
 ## 1. Where Orientation Is Applied
 
@@ -26,26 +28,31 @@ bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
     --orientation horizontal --swap-xy False
 ```
 
-For a 90-degree direction adjustment:
-
-```bash
-bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
-    --orientation vertical --swap-xy True
-```
-
 ### `plot.sh`
 
 `plot.sh` merges transcriptome/amplicon filtered plots onto `gray.png`. The orientation parameters determine how the filtered plots are flipped or rotated before merging, so that they align with `gray.png`.
 
-For example, the image command may store:
+### Clone analysis
+
+Clone analysis reads the same stored `orientation` and `swap_xy` values. It
+applies them to the mRNA Leiden-cluster spatial background and clone spot
+coordinates so the top-LR grid has the same direction as the image and plot
+steps.
+
+Clone analysis also provides a separate presentation option:
 
 ```bash
-orientation=rotate
-swap_xy=False
+dbit clone --config /path/to/config.sh --rotate 90
 ```
 
-Set `gray_path` in the QC config. If it is blank, `plot.sh` looks
-for `gray.png` in the same directory as `cell_number_file`.
+`--rotate` accepts `0`, `90`, `180`, or `270` degrees clockwise. This option
+rotates only the final spatial UMAP/Leiden grid drawn by `top_lr_plot.py`. It
+does not rotate the photographed tissue image, change `gray.png`, or rotate the
+plot legends. The value is stored as `clone_rotate` in the dataset config.
+
+Use `orientation` and `swap_xy` to align data coordinates with the photographed
+image. Use clone `--rotate` only when the already aligned grid needs a different
+direction for presentation.
 
 ## 2. Orientation Options
 
@@ -174,11 +181,25 @@ Use this when:
 | Rotate 90 degrees counterclockwise | `orientation=horizontal`, `swap_xy=True` |
 | Rotate 90 degrees clockwise | `orientation=vertical`, `swap_xy=True` |
 
+Clone presentation rotation is independent of this table:
+
+| Presentation result | Clone option |
+| --- | --- |
+| Keep the aligned grid direction | `--rotate 0` |
+| Rotate the grid 90 degrees clockwise | `--rotate 90` |
+| Rotate the grid 180 degrees | `--rotate 180` |
+| Rotate the grid 270 degrees clockwise | `--rotate 270` |
+
 ## 5. Recommended Check
 
 1. Run `image.sh` first and inspect the generated `result.png`.
 2. Check whether spot `0_0` in `result.png` is in the expected position.
 3. If the labels are incorrect, rerun the image step with adjusted `--orientation` and `--swap-xy` values.
 4. Run `plot.sh` and check whether the generated `merged_*_filtered.png` files align with `gray.png`.
+5. Run clone analysis and confirm that the clone spots and Leiden background
+   have the same orientation. If only the presentation direction needs to
+   change, rerun clone with `--rotate`; do not change the image orientation.
 
-Use the same orientation parameters for `image.sh` and `plot.sh` whenever possible. This keeps image splitting, cell filtering results, and final merged plots consistent.
+Use the same orientation parameters for `image.sh`, `plot.sh`, and clone
+analysis. This keeps image splitting, cell filtering, merged plots, and clone
+coordinates consistent.

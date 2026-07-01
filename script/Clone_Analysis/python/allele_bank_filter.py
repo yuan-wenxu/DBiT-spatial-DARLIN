@@ -9,15 +9,12 @@ from darlin_core import analyze_sequences
 
 LABEL_INFO = {
     "CA": {
-        "bank_file": "allele_bank_Gr_CA.csv.gz",
         "config": "Col1a1",
     },
     "RA": {
-        "bank_file": "allele_bank_Gr_RA.csv.gz",
         "config": "Rosa",
     },
     "TA": {
-        "bank_file": "allele_bank_Gr_TA.csv.gz",
         "config": "Tigre",
     },
 }
@@ -39,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bank-dir",
-        help="Directory containing allele_bank_Gr_*.csv.gz files.",
+        required=True,
+        help="Directory containing CSV/TSV bank files identified by CA, RA, or TA in the filename.",
     )
     parser.add_argument(
         "--min-sequence-length",
@@ -57,14 +55,42 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_bank_file(bank_dir: Path, label: str) -> Path:
+    if not bank_dir.is_dir():
+        raise SystemExit(f"Bank directory not found: {bank_dir}")
+
+    candidates = sorted(
+        path
+        for path in bank_dir.iterdir()
+        if path.is_file()
+        and path.name.endswith((".csv", ".csv.gz", ".tsv", ".tsv.gz"))
+        and label in path.name
+    )
+    if not candidates:
+        raise SystemExit(
+            f"No CSV/TSV bank file containing the label {label!r} was found in {bank_dir}"
+        )
+    if len(candidates) > 1:
+        candidate_list = "\n  ".join(str(path) for path in candidates)
+        raise SystemExit(
+            f"Multiple CSV/TSV bank files match label {label!r} in {bank_dir}:\n"
+            f"  {candidate_list}"
+        )
+    return candidates[0]
+
+
 def load_bank_sequences(bank_path: Path) -> set[str]:
     if not bank_path.exists():
         raise SystemExit(f"Bank file not found: {bank_path}")
     
-    if bank_path.suffix == ".gz":
-        bank_df = pd.read_csv(bank_path, sep=",", dtype=str, keep_default_na=False, compression="gzip")
-    else:
-        bank_df = pd.read_csv(bank_path, sep=",", dtype=str, keep_default_na=False)
+    separator = "\t" if bank_path.name.endswith((".tsv", ".tsv.gz")) else ","
+    bank_df = pd.read_csv(
+        bank_path,
+        sep=separator,
+        dtype=str,
+        keep_default_na=False,
+        compression="infer",
+    )
     if bank_df.empty:
         return set()
 
@@ -264,12 +290,14 @@ def main() -> None:
 
     for label in args.labels:
         info = LABEL_INFO[label]
+        bank_file = resolve_bank_file(bank_dir, label)
         print(f"\n=== Processing {label} ===")
+        print(f"Using bank file: {bank_file}")
         process_label(
             input_dir,
             output_dir,
             label,
-            bank_file=bank_dir / info["bank_file"],
+            bank_file=bank_file,
             config=info["config"],
             min_sequence_length=args.min_sequence_length,
         )

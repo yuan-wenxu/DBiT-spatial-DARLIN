@@ -245,6 +245,10 @@ if [[ "$step" == plot && -n "$input_path" ]]; then
     echo "Error: --input cannot be used with the plot step; paths are read from the config." >&2
     exit 1
 fi
+if [[ "$step" == clone && -n "$input_path" ]]; then
+    echo "Error: --input cannot be used with the clone step; amp_dir is read from the config." >&2
+    exit 1
+fi
 
 validate_nonnegative_integer --umi-min "$cli_umi_min"
 validate_nonnegative_integer --gene-min "$cli_gene_min"

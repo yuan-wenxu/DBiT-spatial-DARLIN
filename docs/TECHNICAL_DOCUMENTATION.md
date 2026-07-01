@@ -416,7 +416,7 @@ earlier steps. It expects the amplicon tissue-filtered outputs (from `amp_dir`):
 
 It also requires (from `bank_dir` and `cluster_csv` in config):
 
-- an allele-bank directory containing `allele_bank_Gr_CA.csv.gz`, `allele_bank_Gr_RA.csv.gz`, and `allele_bank_Gr_TA.csv.gz`
+- an allele-bank directory containing one CSV/TSV file (optionally gzip-compressed) for each locus; filenames must contain the corresponding uppercase `CA`, `RA`, or `TA` label
 - an mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
 
 ### 7.1 Allele-Bank Filter
@@ -438,9 +438,9 @@ This step:
 Label-to-bank mapping:
 
 ```text
-CA -> allele_bank_Gr_CA.csv.gz, config Col1a1
-RA -> allele_bank_Gr_RA.csv.gz, config Rosa
-TA -> allele_bank_Gr_TA.csv.gz, config Tigre
+CA filename label -> config Col1a1
+RA filename label -> config Rosa
+TA filename label -> config Tigre
 ```
 
 Output per label:

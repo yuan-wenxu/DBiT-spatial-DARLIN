@@ -80,7 +80,7 @@ run_pixi python "$PYTHON_DIR/allele_bank_filter.py" \
     --input-dir "$input_dir" \
     --bank-dir "$bank_dir" \
     --min-sequence-length "$min_sequence_length" \
-    --labels "${labels[@]}" \
+    --labels "${labels[@]}" || exit 1
 
 run_pixi python "$PYTHON_DIR/top_lr_plot.py" \
     --input-dir "$input_dir" \
@@ -89,4 +89,3 @@ run_pixi python "$PYTHON_DIR/top_lr_plot.py" \
     --orientation "$orientation" \
     --labels "${labels[@]}" \
     $([ "$swap_xy" = True ] && printf %s --swap_xy) || exit 1
-

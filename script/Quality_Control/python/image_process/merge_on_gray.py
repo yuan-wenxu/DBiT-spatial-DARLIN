@@ -1,10 +1,11 @@
 """
-Transform *_filtered.png images and composite them onto gray.png.
+Transform explicitly named frame images and composite them onto gray.png.
 
 Usage:
-    python merge_on_gray.py --gray <gray.png> --search-dir <dir> [--orientation <mode>] [--swap_xy] [--recursive]
+    python merge_on_gray.py --gray <gray.png> --frame <frame.png> [--frame <frame.png> ...]
+        [--orientation <mode>] [--swap_xy]
 
-For each *_filtered.png found under --search-dir the script will:
+For each frame passed with --frame, the script will:
   1. Transform the image according to --orientation, then --swap_xy when requested.
   2. Resize gray.png to match the transformed image.
   3. Composite the RGBA overlay onto the gray background.
@@ -12,7 +13,6 @@ For each *_filtered.png found under --search-dir the script will:
 """
 import argparse
 import os
-from pathlib import Path
 
 from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = None 
@@ -69,29 +69,25 @@ def merge_on_gray(frame_path: str, gray_path: str, orientation: str, swap_xy: bo
 def main() -> None:
     parser = argparse.ArgumentParser(description="Flip and merge frame plots onto gray background.")
     parser.add_argument("--gray", required=True, help="Path to gray.png background image")
-    parser.add_argument("--search-dir", required=True, help="Directory to search for *_filtered.png")
+    parser.add_argument(
+        "--frame",
+        action="append",
+        required=True,
+        help="Exact path to an overlay image; may be specified more than once",
+    )
     parser.add_argument("--orientation", type=normalize_orientation, default="normal", help="Transform overlay before merging: normal, horizontal, vertical, or rotate")
     parser.add_argument("--swap_xy", action="store_true", help="Swap x and y axes after applying orientation before merging")
-    parser.add_argument("--recursive", action="store_true", help="Search subdirectories recursively")
     args = parser.parse_args()
 
     if not os.path.isfile(args.gray):
         raise FileNotFoundError(f"gray image not found: {args.gray}")
 
-    pattern = "*_filtered.png"
-    if args.recursive:
-        matches = list(Path(args.search_dir).rglob(pattern))
-    else:
-        matches = list(Path(args.search_dir).glob(pattern))
-    matches = [p for p in matches if not p.name.startswith("merged_")]
-
-    if not matches:
-        print(f"No {pattern} files found under {args.search_dir}")
-        return
-
-    for p in sorted(matches):
-        merge_on_gray(str(p), args.gray, args.orientation, args.swap_xy)
-        print(f"Merged: {p} -> merged_{p.name}")
+    for frame_path in args.frame:
+        if not os.path.isfile(frame_path):
+            print(f"Skipping missing frame: {frame_path}")
+            continue
+        merge_on_gray(frame_path, args.gray, args.orientation, args.swap_xy)
+        print(f"Merged: {frame_path} -> merged_{os.path.basename(frame_path)}")
 
 
 if __name__ == "__main__":

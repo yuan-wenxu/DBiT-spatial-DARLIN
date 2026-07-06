@@ -7,7 +7,7 @@ import os
 import argparse
 
 darlin = ['CA', 'RA', 'TA']
-method = ['raw', 'filtered']
+method = ['raw']
 
 def mrna(config, file_path, whitelist_path, umi_min, gene_min, min_cells):
     if os.path.isdir(file_path + '/' + 'GeneFull' ):

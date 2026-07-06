@@ -82,9 +82,6 @@ star_outputs_complete() {
         "Solo.out/GeneFull/raw/matrix.mtx"
         "Solo.out/GeneFull/raw/barcodes.tsv"
         "Solo.out/GeneFull/raw/features.tsv"
-        "Solo.out/GeneFull/filtered/matrix.mtx"
-        "Solo.out/GeneFull/filtered/barcodes.tsv"
-        "Solo.out/GeneFull/filtered/features.tsv"
     )
     for required_file in "${required_files[@]}"; do
         if [[ ! -s "$result_dir/$required_file" ]]; then
@@ -268,7 +265,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             --soloUMIlen "$soloUMIlen" \
             --soloBarcodeReadLength 0 \
             --soloCBwhitelist None \
-            --soloCellFilter EmptyDrops_CR \
+            --soloCellFilter None \
             --soloFeatures GeneFull \
             --bamRemoveDuplicatesType UniqueIdentical \
             --quantMode GeneCounts 2>&1 | tee "$star_results/STAR.log" || {

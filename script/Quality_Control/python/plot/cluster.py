@@ -38,7 +38,7 @@ def sct_normalize_and_pca(adata, n_top_genes=3000, n_comps=50, theta=100):
     return n_comps
 
 
-def build_snn_graph(adata, n_neighbors=10, n_pcs=20):
+def build_snn_graph(adata, n_neighbors=30, n_pcs=20):
     if "X_pca" not in adata.obsm:
         raise ValueError("PCA coordinates not found in adata.obsm['X_pca'].")
 
@@ -135,7 +135,7 @@ def plot_cluster(adata, whitelist_path, output, config):
     plt.savefig(f'{output}/pca.png', bbox_inches='tight', dpi=300)
     plt.close()
 
-    build_snn_graph(adata, n_neighbors=10, n_pcs=20)
+    build_snn_graph(adata, n_neighbors=30, n_pcs=20)
     sc.tl.umap(adata, random_state=RANDOM_STATE)
     sc.tl.leiden(
         adata,
@@ -189,6 +189,16 @@ def plot_cluster(adata, whitelist_path, output, config):
          )
     data['color'] = data['leiden'].map(lambda cluster_id: to_hex(cluster_colors[int(cluster_id)]))
 
+    spatial_metadata = result.set_index('barcode').loc[adata.obs_names]
+    adata.obs['xbc'] = spatial_metadata['xbc'].to_numpy()
+    adata.obs['ybc'] = spatial_metadata['ybc'].to_numpy()
+    adata.obs['x'] = spatial_metadata['x'].to_numpy(dtype=int)
+    adata.obs['y'] = spatial_metadata['y'].to_numpy(dtype=int)
+    adata.obs['color'] = adata.obs['leiden'].map(
+        lambda cluster_id: to_hex(cluster_colors[int(cluster_id)])
+    )
+    adata.obsm['spatial'] = adata.obs[['x', 'y']].to_numpy()
+
     frame_umap = np.zeros((int(config.x_spots_number * config.length_spot + (config.x_spots_number-1) * config.interval),
                            int(config.y_spots_number * config.length_spot + (config.y_spots_number-1) * config.interval), 4),
                            dtype=np.uint8)
@@ -235,6 +245,22 @@ def plot_cluster(adata, whitelist_path, output, config):
     ax_leg.legend(handles=legend_elements, loc='center', frameon=False)
     fig_leg.savefig(f'{output}/umap_legend.png', bbox_inches='tight', dpi=300)
     plt.close(fig_leg)
+
+    normalization_info = adata.uns.get('pearson_residuals_normalization')
+    pearson_residuals = None
+    if isinstance(normalization_info, dict):
+        pearson_residuals = normalization_info.pop('pearson_residuals_df', None)
+
+    if pearson_residuals is not None:
+        hvg_adata = sc.AnnData(
+            X=pearson_residuals.to_numpy(),
+            obs=adata.obs.copy(),
+            var=adata.var.loc[pearson_residuals.columns].copy(),
+        )
+        hvg_adata.obsm['spatial'] = adata.obsm['spatial'].copy()
+        hvg_adata.uns['pearson_residuals_normalization'] = normalization_info.copy()
+        make_h5ad_names_writable(hvg_adata)
+        hvg_adata.write_h5ad(f'{output}/pearson_residuals_hvg.h5ad')
 
     make_h5ad_names_writable(adata)
     h5ad_path = f'{output}/clustered.h5ad'

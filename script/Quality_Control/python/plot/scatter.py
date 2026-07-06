@@ -46,11 +46,11 @@ def plot_scatter(x, y, output, config):
     plt.text(0.05, 0.9, s, transform=plt.gca().transAxes, fontsize=8, verticalalignment='top')
     if config.grid:
         plt.grid(True)
-    plt.xticks(fontsize=14)
-    plt.yticks(fontsize=14)
-    plt.xlabel(config.xlabel, fontsize=14)
-    plt.ylabel(config.ylabel, fontsize=14)
-    plt.title(config.title, fontsize=20)
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=10)
+    plt.xlabel(config.xlabel, fontsize=10)
+    plt.ylabel(config.ylabel, fontsize=10)
+    plt.title(config.title, fontsize=12)
     plt.tight_layout()
     plt.savefig(f'{output}/{config.title}_scatter.png', dpi=300)
 
@@ -79,7 +79,7 @@ def plot_scatter_small(x, y, output, config, scope_x=40000, scope_y=40000):
     plt.yticks(fontsize=10)
     plt.xlabel(config.xlabel, fontsize=10)
     plt.ylabel(config.ylabel, fontsize=10)
-    plt.title(config.title, fontsize=10)
+    plt.title(config.title, fontsize=12)
     plt.tight_layout()
     plt.savefig(f'{output}/{config.title}_scatter_small.png', dpi=300)
 

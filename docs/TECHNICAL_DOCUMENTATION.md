@@ -102,9 +102,13 @@ Important parameters:
 --soloUMIstart 17
 --soloUMIlen 10
 --soloCBwhitelist None
---soloCellFilter EmptyDrops_CR
+--soloCellFilter None
 --soloFeatures GeneFull
 ```
+
+STARsolo cell calling is disabled. Downstream mRNA QC uses only the `raw`
+matrix and applies the configured UMI, gene-count, and minimum-spot filters
+before clustering.
 
 The default barcode and UMI positions match the preprocessing FASTQ layout:
 
@@ -161,6 +165,7 @@ Important mRNA outputs:
 Solo.out/GeneFull/raw/
 ├── data.csv
 ├── clustered.h5ad
+├── pearson_residuals_hvg.h5ad
 ├── pca.png
 ├── umap.png
 ├── frame_umap.png
@@ -176,6 +181,12 @@ Solo.out/GeneFull/raw/
 - raw QC metrics such as `umi_count` and `gene_count`
 - `leiden`
 - `color`
+
+`clustered.h5ad` keeps the full raw count matrix, spot metadata, spatial
+coordinates, dimensional reductions, and clustering results.
+`pearson_residuals_hvg.h5ad` stores the Pearson-residual-normalized
+highly-variable-gene matrix in `X`, with matching spot and gene metadata. The
+normalized matrix is not duplicated inside `clustered.h5ad`.
 
 `data_tissuefiltered.csv` is produced later by `plot.sh` after applying the image-derived tissue mask to mRNA spot data.
 
@@ -353,11 +364,6 @@ Key mRNA output:
 <mrna_dir>/raw/umi_filtered.png
 <mrna_dir>/raw/gene_filtered.png
 <mrna_dir>/raw/merged_umap_filtered.png
-<mrna_dir>/filtered/data_tissuefiltered.csv
-<mrna_dir>/filtered/umap_filtered.png
-<mrna_dir>/filtered/umi_filtered.png
-<mrna_dir>/filtered/gene_filtered.png
-<mrna_dir>/filtered/merged_umap_filtered.png
 ```
 
 For amplicon data, the script calls:
@@ -375,7 +381,11 @@ Key amplicon outputs are written per locus:
 └── merged_umi_filtered.png
 ```
 
-When `gray.png` is available, `merge_on_gray.py` transforms each `*_filtered.png` image according to `--orientation` and `--swap_xy`, resizes the grayscale background, and composites the overlay on top.
+When `gray.png` is available, `plot.sh` passes the expected mRNA and amplicon
+frame paths explicitly to `merge_on_gray.py`. The script transforms only those
+named files according to `--orientation` and `--swap_xy`, resizes the grayscale
+background, and composites the overlay on top. It does not search directories
+for matching images.
 
 The mRNA and amplicon filtered-plot commands write to `filtered_plot.log` and
 print the same output to the terminal.

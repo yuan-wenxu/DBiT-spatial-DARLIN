@@ -59,16 +59,18 @@ normalize_dir_path() {
 }
 
 merge_with_gray() {
-    local search_dir="$1"
+    local frame
+    local merge_args
     if [[ -f "$gray_path" ]]; then
         (
             cd "$pixi_env_dir" || exit 1
             merge_args=(
                 --gray "$gray_path"
-                --search-dir "$search_dir"
                 --orientation "$orientation"
-                --recursive
             )
+            for frame in "$@"; do
+                merge_args+=(--frame "$frame")
+            done
             if [[ "$swap_xy" == True ]]; then
                 merge_args+=(--swap_xy)
             fi
@@ -128,7 +130,12 @@ if [ -n "$mrna_dir" ]; then
             --interval "$interval" \
             --pixel_length "$pixel_length"
     ) 2>&1 | tee "$mrna_dir/filtered_plot.log" || exit 1
-    merge_with_gray "$mrna_dir" || exit 1
+    merge_with_gray \
+        "$mrna_dir/raw/umap_filtered.png" \
+        "$mrna_dir/raw/umi_filtered.png" \
+        "$mrna_dir/raw/umi_per_cell_filtered.png" \
+        "$mrna_dir/raw/gene_filtered.png" \
+        "$mrna_dir/raw/gene_per_cell_filtered.png" || exit 1
 fi
 
 # Amplicon tissue-filtered plot (only when amp_dir is provided)
@@ -145,5 +152,11 @@ if [ -n "$amp_dir" ]; then
             --interval "$interval" \
             --pixel_length "$pixel_length"
     ) 2>&1 | tee "$amp_dir/filtered_plot.log" || exit 1
-    merge_with_gray "$amp_dir" || exit 1
+    merge_with_gray \
+        "$amp_dir/CA/umi_filtered.png" \
+        "$amp_dir/CA/umi_per_cell_filtered.png" \
+        "$amp_dir/RA/umi_filtered.png" \
+        "$amp_dir/RA/umi_per_cell_filtered.png" \
+        "$amp_dir/TA/umi_filtered.png" \
+        "$amp_dir/TA/umi_per_cell_filtered.png" || exit 1
 fi

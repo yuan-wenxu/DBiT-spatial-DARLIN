@@ -4,6 +4,12 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 def legend(data, output_path, name):
+    values = np.asarray(data, dtype=float)
+    values = values[np.isfinite(values) & (values > 0)]
+    if values.size == 0:
+        return
+    p95 = np.percentile(values, 95)
+
     red_rgba = np.zeros((256, 4))
     red_rgba[:, 0] = 1.0  # 红色通道
     red_rgba[:, 1] = 0.0  # 绿色
@@ -11,22 +17,39 @@ def legend(data, output_path, name):
     red_rgba[:, 3] = np.linspace(0, 1, 256)  # 透明度从 0 渐变到 1
     custom_red_alpha_cmap = mcolors.ListedColormap(red_rgba)
 
-    norm = mcolors.Normalize(vmin=0, vmax=max(data) * 0.95)
+    norm = mcolors.Normalize(vmin=0, vmax=p95)
     sm = plt.cm.ScalarMappable(cmap=custom_red_alpha_cmap, norm=norm)
     sm.set_array([])
-    fig, ax = plt.subplots(figsize=(2, 8))
+    fig = plt.figure(figsize=(5, 10))
+    ax = fig.add_axes([0.10, 0.14, 0.14, 0.70])
     cbar = fig.colorbar(sm, cax=ax, orientation='vertical')
-    ticks = [0, int(max(data) / 4 * 0.95), 
-             int(max(data) / 2 * 0.95), 
-             int(max(data) * 3 / 4 * 0.95), 
-             int(max(data) * 0.95)]
+    ticks = np.linspace(0, p95, 5)
     cbar.set_ticks(ticks)
-    cbar.set_ticklabels([f"{t}" for t in ticks], fontsize=18)
-    cbar.ax.tick_params(labelsize=18)
-    cbar.set_label(name, fontsize=18, labelpad=10)
-    ax.tick_params(labelsize=18)
-    plt.tight_layout()
-    plt.savefig(f'{output_path}/{name}', dpi=600)
+    if p95 >= 10:
+        ticklabels = [f"{t:,.0f}" for t in ticks]
+        p95_label = f"{p95:,.0f}"
+    else:
+        ticklabels = [f"{t:.2f}" for t in ticks]
+        p95_label = f"{p95:.2f}"
+    cbar.set_ticklabels(ticklabels, fontsize=22)
+    cbar.ax.tick_params(labelsize=22, pad=10)
+    display_name = name.replace('_', ' ')
+    cbar.set_label(display_name, fontsize=22, labelpad=28)
+    fig.suptitle(
+        f"Color capped at P95\nP95 = {p95_label}",
+        fontsize=22,
+        y=0.96,
+    )
+    fig.text(
+        0.5,
+        0.04,
+        "Values ≥ P95 use maximum opacity",
+        ha='center',
+        va='center',
+        fontsize=16,
+    )
+    ax.tick_params(labelsize=22)
+    fig.savefig(f'{output_path}/{name}', dpi=300)
     plt.close()
 
 def plot_frame(data, output_path, config):

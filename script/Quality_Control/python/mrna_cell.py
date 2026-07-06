@@ -3,7 +3,7 @@ import numpy as np
 from plot import plot_scatter, ScatterConfig, plot_frame_filtered, PlotConfig
 import argparse
 
-method = ['raw', 'filtered']
+method = ['raw']
 darlin = ['CA', 'RA', 'TA']
 
 def load_cell_numbers(cell_number_file):

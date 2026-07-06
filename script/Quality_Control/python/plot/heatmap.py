@@ -51,7 +51,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_yticks([])
         ax.set_xlabel('')
         ax.set_ylabel('')
-        ax.set_title(f"Reads counts", fontsize = 14)
+        ax.set_title(f"Reads counts", fontsize = 12)
         plt.tight_layout()
         plt.savefig(os.path.join(output, f"Reads_counts_heatmap.png"), dpi=300)
     except:
@@ -65,7 +65,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_yticks([])
         ax.set_xlabel('')
         ax.set_ylabel('')
-        ax.set_title(f"UMI counts", fontsize = 14)
+        ax.set_title(f"UMI counts", fontsize = 12)
         plt.tight_layout()
         plt.savefig(os.path.join(output, f"UMI_counts_heatmap.png"), dpi=300)
     except:
@@ -79,7 +79,7 @@ def plot_heatmap(file_path, whitelist_path, output):
         ax.set_yticks([])
         ax.set_xlabel('')
         ax.set_ylabel('')
-        ax.set_title(f"Gene counts", fontsize = 14)
+        ax.set_title(f"Gene counts", fontsize = 12)
         plt.tight_layout()
         plt.savefig(os.path.join(output, f"Gene_counts_heatmap.png"), dpi=300)
     except:

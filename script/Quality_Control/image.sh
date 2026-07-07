@@ -57,6 +57,18 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+scratch_run_dir=""
+
+cleanup_scratch() {
+    if [[ -n "$scratch_run_dir" && -d "$scratch_run_dir" ]]; then
+        rm -rf -- "$scratch_run_dir"
+    fi
+}
+
+trap cleanup_scratch EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
 run_pixi() {
   (
     cd "$pixi_env_dir" || exit 1
@@ -99,11 +111,12 @@ if [ ! -d "$pixi_env_dir" ]; then
 fi
 
 if [ -n "$scratch" ]; then
-    mkdir -p "$scratch/image"
-    mkdir -p "$scratch/image/result"
-    cp "$image_path" "$scratch/image/$image_name"
-    run_image_path="$scratch/image/$image_name"
-    run_result_path="$scratch/image/result"
+    scratch_run_dir="$scratch/image"
+    mkdir -p "$scratch_run_dir"
+    mkdir -p "$scratch_run_dir/result"
+    cp "$image_path" "$scratch_run_dir/$image_name"
+    run_image_path="$scratch_run_dir/$image_name"
+    run_result_path="$scratch_run_dir/result"
 else
     run_image_path="$image_path"
     run_result_path="$result_path"
@@ -132,6 +145,5 @@ run_pixi python "$PYTHON_DIR/cell_filter.py" \
   -c $cutoff || exit 1
 
 if [ -n "$scratch" ]; then
-    cp -r "$scratch/image/result"/* "$result_path/"
-    rm -rf "$scratch/image"
+    cp -r "$scratch_run_dir/result"/* "$result_path/"
 fi

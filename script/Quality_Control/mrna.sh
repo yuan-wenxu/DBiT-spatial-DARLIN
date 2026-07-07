@@ -55,6 +55,18 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+scratch_sample=""
+
+cleanup_scratch() {
+    if [[ -n "$scratch_sample" && -d "$scratch_sample" ]]; then
+        rm -rf -- "$scratch_sample"
+    fi
+}
+
+trap cleanup_scratch EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
 run_pixi() {
     (
         cd "$pixi_env_dir" || exit 1
@@ -209,7 +221,6 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         tmp_path="$(dirname "$pre_r1")"
     else
         echo "Error: missing preprocess outputs for $sample_name." >&2
-        if $use_scratch; then rm -rf "$scratch_sample"; fi
         exit 1
     fi
 
@@ -282,7 +293,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         if $use_scratch; then
             mkdir -p "$orig_output_path/results/$sample_name"
             cp -r "$star_results"/* "$orig_output_path/results/$sample_name"/ || {
-                echo "Error: failed to copy STAR results from scratch for $sample_name; preserving $scratch_sample" >&2
+                echo "Error: failed to copy STAR results from scratch for $sample_name" >&2
                 exit 1
             }
         fi
@@ -291,9 +302,6 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     # Step 3: always run locally, no skip and no scratch.
     if ! star_outputs_complete "$final_results"; then
         echo "Error: incomplete STAR outputs for mRNA QC: $final_results" >&2
-        if $use_scratch; then
-            echo "Scratch data preserved at $scratch_sample" >&2
-        fi
         exit 1
     fi
     run_pixi python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
@@ -306,6 +314,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         }
 
     if $use_scratch; then
-        rm -rf "$scratch_sample"
+        rm -rf -- "$scratch_sample"
+        scratch_sample=""
     fi
 done

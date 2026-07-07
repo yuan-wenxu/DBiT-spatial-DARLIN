@@ -6,8 +6,9 @@ SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd) || exit 1
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
 LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
+DOMAIN_SCRIPT_DIR="$SCRIPT_DIR/Domain_Analysis"
 PROGRAM_NAME=$(basename "$0")
-export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR
+export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR DOMAIN_SCRIPT_DIR
 
 show_help() {
     cat <<EOF
@@ -18,6 +19,7 @@ Steps:
   amplicon      Process DARLIN amplicon FASTQs
   image         Segment a registered image and count cells
   filter        Apply the tissue mask and generate filtered plots
+  domain        Run RCTD deconvolution and BANKSY domain clustering
   clone         Filter and plot clone-analysis results
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
@@ -96,7 +98,21 @@ Required:
 Optional:
   --labels <list>      Comma-separated labels (default: CA,RA,TA)
   --top-n <int>        Positive number of LR plots per label (default: 10)
-  --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270 (default: 0)
+  --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270
+EOF
+}
+
+show_domain_help() {
+    cat <<EOF
+Usage: $PROGRAM_NAME domain --config <file> [options]
+
+Required:
+  --config <file>   Configuration populated by the mRNA step
+
+Optional:
+  --lambda <float>       BANKSY spatial contribution from 0 to 1 (default: 0.8)
+  --resolution <float>   Positive BANKSY Leiden resolution (default: 1.0)
+  --rotate <degrees>     Clockwise grid rotation for display: 0, 90, 180, or 270
 EOF
 }
 
@@ -106,6 +122,7 @@ show_step_help() {
         amplicon) show_amplicon_help ;;
         image) show_image_help ;;
         filter) show_filter_help ;;
+        domain) show_domain_help ;;
         clone) show_clone_help ;;
     esac
 }
@@ -115,16 +132,16 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        mrna|amplicon|image|filter|clone) show_step_help "$step"; exit 0 ;;
+        mrna|amplicon|image|filter|domain|clone) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    mrna|amplicon|image|filter|clone) ;;
+    mrna|amplicon|image|filter|domain|clone) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: mrna, amplicon, image, filter, clone." >&2
+        echo "Valid steps: mrna, amplicon, image, filter, domain, clone." >&2
         exit 1
         ;;
 esac
@@ -147,6 +164,8 @@ cli_swap_xy=""
 cli_clone_labels=""
 cli_top_n=""
 cli_rotate=""
+cli_domain_resolution=""
+cli_domain_lambda=""
 
 require_option_value() {
     if [[ $# -lt 2 || $2 == --* ]]; then
@@ -155,33 +174,41 @@ require_option_value() {
     fi
 }
 
+require_step_option() {
+    local option=$1
+    shift
+    local allowed_step
+    for allowed_step in "$@"; do
+        [[ "$step" == "$allowed_step" ]] && return 0
+    done
+    echo "Error: option '$option' is not valid for the '$step' step." >&2
+    exit 1
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --input) require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
-        --config) require_option_value "$@"; config_file=$2; shift 2 ;;
-        --chip) require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
-        --umi-min) require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
-        --gene-min) require_option_value "$@"; cli_gene_min=$2; shift 2 ;;
-        --min-cell) require_option_value "$@"; cli_min_cell=$2; shift 2 ;;
-        --initial-reads-cutoff) require_option_value "$@"; cli_initial_reads_cutoff=$2; shift 2 ;;
-        --major-fraction-threshold-molecule) require_option_value "$@"; cli_major_fraction_threshold_molecule=$2; shift 2 ;;
-        --reads-fraction-mode) require_option_value "$@"; cli_reads_fraction_mode=$2; shift 2 ;;
-        --reads-cutoff) require_option_value "$@"; cli_reads_cutoff=$2; shift 2 ;;
-        --slope-cutoff) require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
-        --orientation) require_option_value "$@"; cli_orientation=$2; shift 2 ;;
-        --swap-xy) require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
-        --labels) require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
-        --top-n) require_option_value "$@"; cli_top_n=$2; shift 2 ;;
-        --rotate) require_option_value "$@"; cli_rotate=$2; shift 2 ;;
+        --config) require_step_option "$1" mrna amplicon image filter domain clone; require_option_value "$@"; config_file=$2; shift 2 ;;
+        --input) require_step_option "$1" mrna amplicon image; require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
+        --chip) require_step_option "$1" mrna amplicon; require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
+        --umi-min) require_step_option "$1" mrna; require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
+        --gene-min) require_step_option "$1" mrna; require_option_value "$@"; cli_gene_min=$2; shift 2 ;;
+        --min-cell) require_step_option "$1" mrna; require_option_value "$@"; cli_min_cell=$2; shift 2 ;;
+        --initial-reads-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_initial_reads_cutoff=$2; shift 2 ;;
+        --major-fraction-threshold-molecule) require_step_option "$1" amplicon; require_option_value "$@"; cli_major_fraction_threshold_molecule=$2; shift 2 ;;
+        --reads-fraction-mode) require_step_option "$1" amplicon; require_option_value "$@"; cli_reads_fraction_mode=$2; shift 2 ;;
+        --reads-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_reads_cutoff=$2; shift 2 ;;
+        --slope-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
+        --orientation) require_step_option "$1" image; require_option_value "$@"; cli_orientation=$2; shift 2 ;;
+        --swap-xy) require_step_option "$1" image; require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
+        --lambda) require_step_option "$1" domain; require_option_value "$@"; cli_domain_lambda=$2; shift 2 ;;
+        --resolution) require_step_option "$1" domain; require_option_value "$@"; cli_domain_resolution=$2; shift 2 ;;
+        --labels) require_step_option "$1" clone; require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
+        --top-n) require_step_option "$1" clone; require_option_value "$@"; cli_top_n=$2; shift 2 ;;
+        --rotate) require_step_option "$1" domain clone; require_option_value "$@"; cli_rotate=$2; shift 2 ;;
         -h|--help) show_step_help "$step"; exit 0 ;;
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
 done
-
-if [[ "$step" == image || "$step" == filter ]] && $chip_from_cli; then
-    echo "Error: --chip cannot be used with the $step step; chip must already be stored in the config." >&2
-    exit 1
-fi
 
 validate_nonnegative_integer() {
     local option=$1
@@ -210,6 +237,19 @@ validate_nonnegative_number() {
     fi
 }
 
+validate_positive_number() {
+    local option=$1
+    local value=$2
+    if [[ -n "$value" && ! "$value" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]]; then
+        echo "Error: $option must be a positive number; got '$value'." >&2
+        exit 1
+    fi
+    if [[ -n "$value" ]] && ! awk -v value="$value" 'BEGIN { exit !(value > 0) }'; then
+        echo "Error: $option must be greater than zero; got '$value'." >&2
+        exit 1
+    fi
+}
+
 validate_fraction() {
     local option=$1
     local value=$2
@@ -223,31 +263,6 @@ validate_fraction() {
     fi
 }
 
-if [[ "$step" != mrna && ( -n "$cli_umi_min" || -n "$cli_gene_min" || -n "$cli_min_cell" ) ]]; then
-    echo "Error: --umi-min, --gene-min, and --min-cell can only be used with the mrna step." >&2
-    exit 1
-fi
-if [[ "$step" != amplicon && ( -n "$cli_initial_reads_cutoff" || -n "$cli_major_fraction_threshold_molecule" || -n "$cli_reads_fraction_mode" || -n "$cli_reads_cutoff" || -n "$cli_slope_cutoff" ) ]]; then
-    echo "Error: amplicon filtering options can only be used with the amplicon step." >&2
-    exit 1
-fi
-if [[ "$step" != image && ( -n "$cli_orientation" || -n "$cli_swap_xy" ) ]]; then
-    echo "Error: --orientation and --swap-xy can only be used with the image step." >&2
-    exit 1
-fi
-if [[ "$step" != clone && ( -n "$cli_clone_labels" || -n "$cli_top_n" || -n "$cli_rotate" ) ]]; then
-    echo "Error: --labels, --top-n, and --rotate can only be used with the clone step." >&2
-    exit 1
-fi
-if [[ "$step" == filter && -n "$input_path" ]]; then
-    echo "Error: --input cannot be used with the filter step; paths are read from the config." >&2
-    exit 1
-fi
-if [[ "$step" == clone && -n "$input_path" ]]; then
-    echo "Error: --input cannot be used with the clone step; amp_dir is read from the config." >&2
-    exit 1
-fi
-
 validate_nonnegative_integer --umi-min "$cli_umi_min"
 validate_nonnegative_integer --gene-min "$cli_gene_min"
 validate_positive_integer --min-cell "$cli_min_cell"
@@ -256,6 +271,8 @@ validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_thres
 validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
 validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
 validate_positive_integer --top-n "$cli_top_n"
+validate_positive_number --resolution "$cli_domain_resolution"
+validate_fraction --lambda "$cli_domain_lambda"
 if [[ -n "$cli_rotate" ]]; then
     case "$cli_rotate" in
         0|90|180|270) ;;
@@ -292,10 +309,6 @@ set_config_value() {
 }
 
 if ! $chip_from_cli; then selected_chip=${chip:-}; fi
-if [[ "$step" != clone && -z "$selected_chip" ]]; then
-    echo "Error: chip is not stored in the config file: $config_abs" >&2
-    exit 1
-fi
 case "$selected_chip" in
     50-50|50-20|100-20|"") ;;
     *)
@@ -305,25 +318,20 @@ case "$selected_chip" in
         ;;
 esac
 
-if [[ "$step" != filter && -z "$input_path" ]]; then
-    case "$step" in
-        mrna) input_path=${mrna_fastq_path:-} ;;
-        amplicon) input_path=${amplicon_fastq_path:-} ;;
-        image) input_path=${image_path:-} ;;
-        clone) input_path=${amp_dir} ;;
-    esac
-fi
-if [[ "$step" != filter && "$step" != clone && -z "$input_path" ]]; then
+stored_input=""
+case "$step" in
+    mrna) stored_input=${mrna_fastq_path:-} ;;
+    amplicon) stored_input=${amplicon_fastq_path:-} ;;
+    image) stored_input=${image_path:-} ;;
+esac
+[[ -n "$input_path" ]] || input_path=$stored_input
+if [[ "$step" =~ ^(mrna|amplicon|image)$ && -z "$input_path" ]]; then
     echo "Error: --input is required the first time; no input path for '$step' is stored in $config_abs." >&2
     exit 1
 fi
 if [[ "$step" == mrna ]]; then
     if [[ -z ${genome_dir:-} ]]; then
         echo "Error: genome_dir must be set in $config_abs." >&2
-        exit 1
-    fi
-    if [[ ! -d "$genome_dir" ]]; then
-        echo "Error: genome directory does not exist: $genome_dir" >&2
         exit 1
     fi
 fi
@@ -350,16 +358,8 @@ if [[ "$step" == image ]]; then
             ;;
     esac
 fi
-if [[ "$step" != filter ]]; then
+if [[ "$step" == mrna || "$step" == amplicon || "$step" == image ]]; then
     input_abs=$(realpath -m "$input_path")
-fi
-if [[ "$step" == image && ! -f "$input_abs" ]]; then
-    echo "Error: image file does not exist: $input_abs" >&2
-    exit 1
-fi
-if [[ "$step" == clone && ! -d "$input_abs" ]]; then
-    echo "Error: clone input directory does not exist: $input_abs" >&2
-    exit 1
 fi
 
 case "$step" in
@@ -413,10 +413,15 @@ case "$step" in
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
         [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
         ;;
+    domain)
+        [[ -n "$cli_domain_lambda" ]] && set_config_value banksy_lambda "$cli_domain_lambda"
+        [[ -n "$cli_domain_resolution" ]] && set_config_value banksy_resolution "$cli_domain_resolution"
+        [[ -n "$cli_rotate" ]] && set_config_value rotate "$cli_rotate"
+        ;;
     clone)
         [[ -n "$cli_clone_labels" ]] && set_config_value clone_labels "$cli_clone_labels"
         [[ -n "$cli_top_n" ]] && set_config_value clone_top_n "$cli_top_n"
-        [[ -n "$cli_rotate" ]] && set_config_value clone_rotate "$cli_rotate"
+        [[ -n "$cli_rotate" ]] && set_config_value rotate "$cli_rotate"
         ;;
 esac
 
@@ -467,6 +472,11 @@ case "$step" in
         cpus=$sbatch_filter_cpus; partition=$sbatch_filter_partition
         memory=$sbatch_filter_mem; walltime=$sbatch_filter_time
         ;;
+    domain)
+        script="$DOMAIN_SCRIPT_DIR/domain.sh"
+        cpus=${sbatch_domain_cpus}; partition=${sbatch_domain_partition}
+        memory=${sbatch_domain_mem}; walltime=${sbatch_domain_time}
+        ;;
     clone)
         script="$LR_SCRIPT_DIR/clone.sh"
         cpus=${sbatch_clone_cpus}; partition=${sbatch_clone_partition}
@@ -494,7 +504,7 @@ sbatch_args=(
     --time="$walltime"
     -o "$sbatch_output"
     -e "$sbatch_error"
-    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
+    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,DOMAIN_SCRIPT_DIR=$DOMAIN_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
 )
 if [[ "${sbatch_requeue:-false}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1)$ ]]; then
     sbatch_args+=(--requeue)

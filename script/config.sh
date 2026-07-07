@@ -4,9 +4,12 @@
 # Basic configuration
 genome_dir=/path/to/STAR_genome_index
 bank_dir=/path/to/allele_bank
+rctd_reference_dir=/path/to/10x_reference_atlas
+rctd_reference_cache=/path/to/rctd_reference_cache.rds
 scratch=                         # Optional temporary directory
 execution_mode=hpc               # hpc or local
 pixel_length=0.294
+seed=42
 
 # mRNA
 mrna_cores=10
@@ -48,6 +51,25 @@ cutoff=100
 # Clone analysis
 min_sequence_length=20
 
+# Domain analysis
+rctd_reference_barcode_column=V1
+rctd_reference_numi_column=nCount_RNA
+rctd_cell_type_column=C66_named
+rctd_reference_gene_column=2
+rctd_spatial_gene_name_field=gene_name
+rctd_max_cells_per_type=200
+rctd_cores=8
+rctd_mode=full
+rctd_ref_min_umi=100
+rctd_spa_min_umi=100
+banksy_lambda=0.8
+banksy_resolution=1.0
+banksy_spatial_neighbors=30
+banksy_cluster_neighbors=50
+banksy_pca_components=20
+banksy_max_m=1
+banksy_neighbor_decay=scaled_gaussian    # scaled_gaussian or reciprocal
+
 # SLURM resources (used when execution_mode=hpc)
 sbatch_job_name_prefix=dbit
 sbatch_output=%x_%j.out
@@ -73,6 +95,11 @@ sbatch_filter_cpus=1
 sbatch_filter_partition=
 sbatch_filter_mem=32G
 sbatch_filter_time=04:00:00
+
+sbatch_domain_cpus=${rctd_cores}
+sbatch_domain_partition=
+sbatch_domain_mem=64G
+sbatch_domain_time=24:00:00
 
 sbatch_clone_cpus=1
 sbatch_clone_partition=

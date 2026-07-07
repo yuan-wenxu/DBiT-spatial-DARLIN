@@ -55,6 +55,18 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+scratch_run_dir=""
+
+cleanup_scratch() {
+    if [[ -n "$scratch_run_dir" && -d "$scratch_run_dir" ]]; then
+        rm -rf -- "$scratch_run_dir"
+    fi
+}
+
+trap cleanup_scratch EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
 run_pixi() {
     (
         cd "$pixi_env_dir" || exit 1
@@ -111,6 +123,7 @@ mkdir -p "$output_path"
 if [ -n "$scratch" ]; then
     scratch_input="$scratch/amplicon/input"
     scratch_output="$scratch/amplicon/output"
+    scratch_run_dir="$scratch/amplicon"
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"
@@ -195,5 +208,4 @@ done
 
 if [ -n "$scratch" ]; then
     cp -r "$scratch_output"/* "$orig_output_path"/
-    rm -rf "$scratch/amplicon"
 fi

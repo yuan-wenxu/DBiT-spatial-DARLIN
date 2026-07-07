@@ -38,7 +38,7 @@ swap_xy=${swap_xy}
 min_sequence_length=${min_sequence_length}
 IFS=',' read -r -a labels <<< "${clone_labels:-CA,RA,TA}"
 top_n=${clone_top_n:-10}
-rotate=${clone_rotate:-0}
+rotate=${rotate}
 
 
 # Validate required config variables
@@ -52,6 +52,10 @@ if [[ -z "$bank_dir" ]]; then
 fi
 if [[ -z "$cluster_csv" ]]; then
     echo "Error: cluster_csv must be set in the config." >&2
+    exit 1
+fi
+if [[ -z "$rotate" ]]; then
+    echo "Error: rotate must be set in the config." >&2
     exit 1
 fi
 if [[ -z ${x_spots_number:-} || -z ${y_spots_number:-} ]]; then
@@ -76,7 +80,7 @@ esac
 case "$rotate" in
     0|90|180|270) ;;
     *)
-        echo "Error: clone_rotate must be 0, 90, 180, or 270; got '$rotate'." >&2
+        echo "Error: rotate must be 0, 90, 180, or 270; got '$rotate'." >&2
         exit 1
         ;;
 esac

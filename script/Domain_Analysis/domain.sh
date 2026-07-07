@@ -126,9 +126,7 @@ scratch_deconv=""
 
 if [[ -n ${scratch:-} ]]; then
     scratch=$(normalize_dir_path "$scratch")
-    dataset_name=$(basename "$(dirname "$deconv_output")")
-    output_checksum=$(printf '%s' "$deconv_output" | cksum | awk '{print $1}')
-    scratch_root="$scratch/domain_analysis/${dataset_name}_${output_checksum}"
+    scratch_root="$scratch/domain_analysis"
     scratch_deconv="$scratch_root/deconv"
     use_scratch=true
 fi

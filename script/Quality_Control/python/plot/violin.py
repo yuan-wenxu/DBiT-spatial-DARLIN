@@ -14,6 +14,10 @@ def plot_violin(file_path, filter, umi_min=900, gene_min=300, min_cells=3):
     adata = sc.AnnData(X = mtx.T.tocsr())
     adata.obs_names = barcodes.iloc[:, 0].astype(str).to_numpy()
     adata.var_names = features.iloc[:, 0].astype(str).to_numpy()
+    if features.shape[1] > 1:
+        adata.var['gene_name'] = pd.array(features.iloc[:, 1], dtype='string')
+    if features.shape[1] > 2:
+        adata.var['feature_type'] = features.iloc[:, 2].astype(str).to_numpy()
     adata.obs_names.name = "barcode"
     adata.var_names.name = "gene"
     sc.pp.calculate_qc_metrics(adata, inplace=True)

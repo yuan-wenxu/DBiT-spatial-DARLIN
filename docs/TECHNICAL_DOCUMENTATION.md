@@ -182,7 +182,7 @@ Solo.out/GeneFull/raw/
 - `color`
 
 `clustered.h5ad` keeps the full raw count matrix, spot metadata, spatial
-coordinates, dimensional reductions, clustering results, and the
+coordinates, gene IDs and names, dimensional reductions, clustering results, and the
 Pearson-residual-normalized highly-variable-gene matrix under
 `uns['pearson_residuals_normalization']['pearson_residuals_df']`.
 

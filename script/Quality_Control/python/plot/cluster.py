@@ -1,6 +1,7 @@
 import pandas as pd
 import argparse
 import warnings
+import anndata as ad
 import scanpy as sc
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_hex
@@ -247,8 +248,11 @@ def plot_cluster(adata, whitelist_path, output, config):
     plt.close(fig_leg)
 
     make_h5ad_names_writable(adata)
+    if 'gene_name' in adata.var:
+        adata.var['gene_name'] = adata.var['gene_name'].astype('string')
+    ad.settings.allow_write_nullable_strings = True
     h5ad_path = f'{output}/clustered.h5ad'
-    adata.write_h5ad(h5ad_path)
+    adata.write_h5ad(h5ad_path, convert_strings_to_categoricals=False)
     data.to_csv(f'{output}/data.csv', index=False)
 
     return f'{output}/data.csv'

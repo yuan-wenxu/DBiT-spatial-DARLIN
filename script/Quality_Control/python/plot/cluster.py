@@ -246,22 +246,6 @@ def plot_cluster(adata, whitelist_path, output, config):
     fig_leg.savefig(f'{output}/umap_legend.png', bbox_inches='tight', dpi=300)
     plt.close(fig_leg)
 
-    normalization_info = adata.uns.get('pearson_residuals_normalization')
-    pearson_residuals = None
-    if isinstance(normalization_info, dict):
-        pearson_residuals = normalization_info.pop('pearson_residuals_df', None)
-
-    if pearson_residuals is not None:
-        hvg_adata = sc.AnnData(
-            X=pearson_residuals.to_numpy(),
-            obs=adata.obs.copy(),
-            var=adata.var.loc[pearson_residuals.columns].copy(),
-        )
-        hvg_adata.obsm['spatial'] = adata.obsm['spatial'].copy()
-        hvg_adata.uns['pearson_residuals_normalization'] = normalization_info.copy()
-        make_h5ad_names_writable(hvg_adata)
-        hvg_adata.write_h5ad(f'{output}/pearson_residuals_hvg.h5ad')
-
     make_h5ad_names_writable(adata)
     h5ad_path = f'{output}/clustered.h5ad'
     adata.write_h5ad(h5ad_path)

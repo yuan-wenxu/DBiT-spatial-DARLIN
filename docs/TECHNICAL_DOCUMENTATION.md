@@ -165,7 +165,6 @@ Important mRNA outputs:
 Solo.out/GeneFull/raw/
 ├── data.csv
 ├── clustered.h5ad
-├── pearson_residuals_hvg.h5ad
 ├── pca.png
 ├── umap.png
 ├── frame_umap.png
@@ -183,10 +182,9 @@ Solo.out/GeneFull/raw/
 - `color`
 
 `clustered.h5ad` keeps the full raw count matrix, spot metadata, spatial
-coordinates, dimensional reductions, and clustering results.
-`pearson_residuals_hvg.h5ad` stores the Pearson-residual-normalized
-highly-variable-gene matrix in `X`, with matching spot and gene metadata. The
-normalized matrix is not duplicated inside `clustered.h5ad`.
+coordinates, dimensional reductions, clustering results, and the
+Pearson-residual-normalized highly-variable-gene matrix under
+`uns['pearson_residuals_normalization']['pearson_residuals_df']`.
 
 `data_tissuefiltered.csv` is produced later by `filter.sh` after applying the image-derived tissue mask to mRNA spot data.
 

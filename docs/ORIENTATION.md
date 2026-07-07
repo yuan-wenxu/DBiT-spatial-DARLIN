@@ -1,7 +1,7 @@
 # Orientation Handling
 
 This document explains the orientation parameters used by `image.sh`,
-`plot.sh`, and clone analysis, and how to choose the correct setting with the
+`filter.sh`, and clone analysis, and how to choose the correct setting with the
 schematic images.
 
 Pass both required values to the image step:
@@ -11,7 +11,7 @@ Pass both required values to the image step:
 
 These parameters are used when the image coordinate system, spatial barcode coordinate system, and final visualization direction do not match.
 
-`dbit.sh image` appends both values to the per-dataset config. The later plot
+`dbit.sh image` appends both values to the per-dataset config. The later filter
 and clone steps consume those stored values and do not accept separate
 orientation arguments.
 
@@ -28,9 +28,9 @@ bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
     --orientation horizontal --swap-xy False
 ```
 
-### `plot.sh`
+### `filter.sh`
 
-`plot.sh` merges transcriptome/amplicon filtered plots onto `gray.png`. The orientation parameters determine how the filtered plots are flipped or rotated before merging, so that they align with `gray.png`.
+`filter.sh` merges transcriptome/amplicon filtered plots onto `gray.png`. The orientation parameters determine how the filtered plots are flipped or rotated before merging, so that they align with `gray.png`.
 
 ### Clone analysis
 
@@ -195,11 +195,11 @@ Clone presentation rotation is independent of this table:
 1. Run `image.sh` first and inspect the generated `result.png`.
 2. Check whether spot `0_0` in `result.png` is in the expected position.
 3. If the labels are incorrect, rerun the image step with adjusted `--orientation` and `--swap-xy` values.
-4. Run `plot.sh` and check whether the generated `merged_*_filtered.png` files align with `gray.png`.
+4. Run `filter.sh` and check whether the generated `merged_*_filtered.png` files align with `gray.png`.
 5. Run clone analysis and confirm that the clone spots and Leiden background
    have the same orientation. If only the presentation direction needs to
    change, rerun clone with `--rotate`; do not change the image orientation.
 
-Use the same orientation parameters for `image.sh`, `plot.sh`, and clone
+Use the same orientation parameters for `image.sh`, `filter.sh`, and clone
 analysis. This keeps image splitting, cell filtering, merged plots, and clone
 coordinates consistent.

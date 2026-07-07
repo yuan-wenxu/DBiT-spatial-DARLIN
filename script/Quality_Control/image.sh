@@ -44,7 +44,7 @@ case "${swap_xy,,}" in
 esac
 for variable in x_spots_number y_spots_number length_spot interval; do
     if [[ -z ${!variable:-} ]]; then
-        echo "Run this script through dbit.sh so --chip is resolved." >&2
+        echo "Run this script through dbit.sh with chip already stored in the config." >&2
         exit 1
     fi
 done

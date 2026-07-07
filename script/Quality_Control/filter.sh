@@ -5,7 +5,7 @@ show_help() {
     cat << EOF
 Usage: $0 <config_file>
 
-Plot tissue-filtered results for mRNA and/or amplicon data while retaining cell counts.
+Filter mRNA and/or amplicon spots by the tissue mask and generate spatial plots.
 
 Arguments:
   config_file   Per-dataset QC configuration file
@@ -45,7 +45,7 @@ case "${swap_xy,,}" in
 esac
 for variable in x_spots_number y_spots_number length_spot interval; do
     if [[ -z ${!variable:-} ]]; then
-        echo "Run this script through dbit.sh so --chip is resolved." >&2
+        echo "Run this script through dbit.sh with chip already stored in the config." >&2
         exit 1
     fi
 done
@@ -117,7 +117,7 @@ if [[ ! -d "$pixi_env_dir" ]]; then
     exit 1
 fi
 
-# mRNA tissue-filtered plot (only when mrna_dir is provided)
+# Filter mRNA spots and generate plots (only when mrna_dir is provided)
 if [ -n "$mrna_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
@@ -138,7 +138,7 @@ if [ -n "$mrna_dir" ]; then
         "$mrna_dir/raw/gene_per_cell_filtered.png" || exit 1
 fi
 
-# Amplicon tissue-filtered plot (only when amp_dir is provided)
+# Filter amplicon spots and generate plots (only when amp_dir is provided)
 if [ -n "$amp_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1

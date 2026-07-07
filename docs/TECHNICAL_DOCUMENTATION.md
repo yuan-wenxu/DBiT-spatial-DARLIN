@@ -9,7 +9,7 @@ The pipeline contains five user-facing steps:
 - `mrna`: preprocess transcriptome FASTQs, run STARsolo, and perform spatial QC.
 - `image`: split the registered image and count cells with StarDist.
 - `amplicon`: process DARLIN amplicon FASTQs and generate clone-call tables.
-- `plot`: apply tissue filtering and merge spatial plots with the image.
+- `filter`: apply tissue filtering and merge spatial plots with the image.
 - `clone`: filter LR sequences against allele banks and plot the top clones.
 
 The corresponding shell entry points are:
@@ -19,7 +19,7 @@ script/dbit.sh
 script/Quality_Control/mrna.sh
 script/Quality_Control/image.sh
 script/Quality_Control/amplicon.sh
-script/Quality_Control/plot.sh
+script/Quality_Control/filter.sh
 script/Clone_Analysis/clone.sh
 ```
 
@@ -48,7 +48,7 @@ Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode an
 
 ### Orientation Parameters
 
-`image.sh`, `plot.sh`, and clone analysis share orientation controls:
+`image.sh`, `filter.sh`, and clone analysis share orientation controls:
 
 The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
 or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
@@ -188,7 +188,7 @@ coordinates, dimensional reductions, and clustering results.
 highly-variable-gene matrix in `X`, with matching spot and gene metadata. The
 normalized matrix is not duplicated inside `clustered.h5ad`.
 
-`data_tissuefiltered.csv` is produced later by `plot.sh` after applying the image-derived tissue mask to mRNA spot data.
+`data_tissuefiltered.csv` is produced later by `filter.sh` after applying the image-derived tissue mask to mRNA spot data.
 
 ## 4. Image Workflow
 
@@ -237,7 +237,7 @@ image/
 └── split/
 ```
 
-`filtered_results.csv` is the image-derived table used by `plot.sh`. It retains
+`filtered_results.csv` is the image-derived table used by `filter.sh`. It retains
 spot coordinates and predicted cell counts and adds the Boolean `in_tissue`
 column used for spot filtering. `tissue_mask.png` is a full-resolution binary
 mask in the registered image coordinate system.
@@ -333,22 +333,22 @@ amplicon/results/<sample_name>/<CA|RA|TA>/
 Entry point:
 
 ```text
-script/Quality_Control/plot.sh
+script/Quality_Control/filter.sh
 ```
 
 This step combines image-derived tissue membership and retained cell-count
 information with mRNA and/or amplicon spatial results. Spots are filtered by
 `in_tissue`; cell counts remain available for cell-based summaries.
 
-All plotting paths are read from the shared dataset config; the `plot` step
-does not accept a separate input path:
+All filtering paths and the chip selection are read from the shared dataset
+config; the `filter` step does not accept `--input` or `--chip`:
 
 - `cell_number_file`: appended to the dataset config by the image step; usually `image/filtered_results.csv`
 - `tissue_mask_file`: whole-image binary mask, usually `image/tissue_mask.png`
 - `mrna_dir`: STARsolo `GeneFull` directory
 - `amp_dir`: amplicon result directory
 - `gray_path`: grayscale image for merged overlays
-- the barcode whitelist is selected automatically by the chip argument
+- the barcode whitelist is selected automatically from the stored chip
 
 For mRNA data, the script calls:
 
@@ -381,7 +381,7 @@ Key amplicon outputs are written per locus:
 └── merged_umi_filtered.png
 ```
 
-When `gray.png` is available, `plot.sh` passes the expected mRNA and amplicon
+When `gray.png` is available, `filter.sh` passes the expected mRNA and amplicon
 frame paths explicitly to `merge_on_gray.py`. The script transforms only those
 named files according to `--orientation` and `--swap_xy`, resizes the grayscale
 background, and composites the overlay on top. It does not search directories

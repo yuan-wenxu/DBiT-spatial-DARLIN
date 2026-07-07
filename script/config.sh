@@ -69,10 +69,10 @@ sbatch_image_partition=
 sbatch_image_mem=32G
 sbatch_image_time=12:00:00
 
-sbatch_plot_cpus=1
-sbatch_plot_partition=
-sbatch_plot_mem=32G
-sbatch_plot_time=04:00:00
+sbatch_filter_cpus=1
+sbatch_filter_partition=
+sbatch_filter_mem=32G
+sbatch_filter_time=04:00:00
 
 sbatch_clone_cpus=1
 sbatch_clone_partition=

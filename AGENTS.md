@@ -10,7 +10,7 @@ Primary QC scripts:
 - `script/Quality_Control/mrna.sh`
 - `script/Quality_Control/image.sh`
 - `script/Quality_Control/amplicon.sh`
-- `script/Quality_Control/plot.sh`
+- `script/Quality_Control/filter.sh`
 
 Detailed user workflow is documented in `README.md` and `docs/TECHNICAL_DOCUMENTATION.md`.
 

@@ -77,7 +77,7 @@ local run or `execution_mode=hpc` for SLURM submission.
 The recommended order is:
 
 ```text
-mrna → image → amplicon → plot → clone
+mrna → image → amplicon → filter → clone
 ```
 
 ### mRNA QC
@@ -122,7 +122,7 @@ Apply image-derived cell/tissue filtering to the mRNA and amplicon results and
 merge spatial overlays with the grayscale tissue image.
 
 ```bash
-dbit plot --config /path/to/sample_name/config.sh
+dbit filter --config /path/to/sample_name/config.sh
 ```
 
 ### Clone analysis
@@ -141,15 +141,16 @@ dbit clone --config /path/to/sample_name/config.sh --rotate 90
 ```
 
 The first input path and chip selection are stored in the dataset config and
-reused by later commands. Current options and filtering thresholds are listed
-by the command-line help:
+reused by later commands. The `image` and `filter` commands only use the stored
+chip and do not accept `--chip`. Current options and filtering thresholds are
+listed by the command-line help:
 
 ```bash
 dbit -h
 dbit mrna -h
 dbit image -h
 dbit amplicon -h
-dbit plot -h
+dbit filter -h
 dbit clone -h
 ```
 

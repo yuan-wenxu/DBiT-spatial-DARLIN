@@ -17,7 +17,7 @@ Steps:
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
   amplicon      Process DARLIN amplicon FASTQs
   image         Segment a registered image and count cells
-  plot          Generate tissue-filtered plots after image
+  filter        Apply the tissue mask and generate filtered plots
   clone         Filter and plot clone-analysis results
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
@@ -69,7 +69,6 @@ Optional:
   --input <path>          Registered input image; required only before stored
   --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
   --swap-xy <bool>        True or False (case-insensitive); required only before stored
-  --chip <name>           50-50, 50-20, or 100-20; required only before stored
 
 90-degree rotation combinations:
   --orientation horizontal --swap-xy True    90 degrees counterclockwise
@@ -77,15 +76,13 @@ Optional:
 EOF
 }
 
-show_plot_help() {
+show_filter_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME plot --config <file> [--chip <name>]
+Usage: $PROGRAM_NAME filter --config <file>
 
 Required:
   --config <file>   Configuration populated by earlier data steps
 
-Optional:
-  --chip <name>     50-50, 50-20, or 100-20; required only before stored
 EOF
 }
 
@@ -108,7 +105,7 @@ show_step_help() {
         mrna) show_mrna_help ;;
         amplicon) show_amplicon_help ;;
         image) show_image_help ;;
-        plot) show_plot_help ;;
+        filter) show_filter_help ;;
         clone) show_clone_help ;;
     esac
 }
@@ -118,16 +115,16 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        mrna|amplicon|image|plot|clone) show_step_help "$step"; exit 0 ;;
+        mrna|amplicon|image|filter|clone) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    mrna|amplicon|image|plot|clone) ;;
+    mrna|amplicon|image|filter|clone) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: mrna, amplicon, image, plot, clone." >&2
+        echo "Valid steps: mrna, amplicon, image, filter, clone." >&2
         exit 1
         ;;
 esac
@@ -180,6 +177,11 @@ while [[ $# -gt 0 ]]; do
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
 done
+
+if [[ "$step" == image || "$step" == filter ]] && $chip_from_cli; then
+    echo "Error: --chip cannot be used with the $step step; chip must already be stored in the config." >&2
+    exit 1
+fi
 
 validate_nonnegative_integer() {
     local option=$1
@@ -237,8 +239,8 @@ if [[ "$step" != clone && ( -n "$cli_clone_labels" || -n "$cli_top_n" || -n "$cl
     echo "Error: --labels, --top-n, and --rotate can only be used with the clone step." >&2
     exit 1
 fi
-if [[ "$step" == plot && -n "$input_path" ]]; then
-    echo "Error: --input cannot be used with the plot step; paths are read from the config." >&2
+if [[ "$step" == filter && -n "$input_path" ]]; then
+    echo "Error: --input cannot be used with the filter step; paths are read from the config." >&2
     exit 1
 fi
 if [[ "$step" == clone && -n "$input_path" ]]; then
@@ -291,7 +293,7 @@ set_config_value() {
 
 if ! $chip_from_cli; then selected_chip=${chip:-}; fi
 if [[ "$step" != clone && -z "$selected_chip" ]]; then
-    echo "Error: --chip is required the first time; no chip is stored in $config_abs." >&2
+    echo "Error: chip is not stored in the config file: $config_abs" >&2
     exit 1
 fi
 case "$selected_chip" in
@@ -303,7 +305,7 @@ case "$selected_chip" in
         ;;
 esac
 
-if [[ "$step" != plot && -z "$input_path" ]]; then
+if [[ "$step" != filter && -z "$input_path" ]]; then
     case "$step" in
         mrna) input_path=${mrna_fastq_path:-} ;;
         amplicon) input_path=${amplicon_fastq_path:-} ;;
@@ -311,7 +313,7 @@ if [[ "$step" != plot && -z "$input_path" ]]; then
         clone) input_path=${amp_dir} ;;
     esac
 fi
-if [[ "$step" != plot && "$step" != clone && -z "$input_path" ]]; then
+if [[ "$step" != filter && "$step" != clone && -z "$input_path" ]]; then
     echo "Error: --input is required the first time; no input path for '$step' is stored in $config_abs." >&2
     exit 1
 fi
@@ -348,7 +350,7 @@ if [[ "$step" == image ]]; then
             ;;
     esac
 fi
-if [[ "$step" != plot ]]; then
+if [[ "$step" != filter ]]; then
     input_abs=$(realpath -m "$input_path")
 fi
 if [[ "$step" == image && ! -f "$input_abs" ]]; then
@@ -460,10 +462,10 @@ case "$step" in
         cpus=$sbatch_image_cpus; partition=$sbatch_image_partition
         memory=$sbatch_image_mem; walltime=$sbatch_image_time
         ;;
-    plot)
-        script="$QC_SCRIPT_DIR/plot.sh"
-        cpus=$sbatch_plot_cpus; partition=$sbatch_plot_partition
-        memory=$sbatch_plot_mem; walltime=$sbatch_plot_time
+    filter)
+        script="$QC_SCRIPT_DIR/filter.sh"
+        cpus=$sbatch_filter_cpus; partition=$sbatch_filter_partition
+        memory=$sbatch_filter_mem; walltime=$sbatch_filter_time
         ;;
     clone)
         script="$LR_SCRIPT_DIR/clone.sh"

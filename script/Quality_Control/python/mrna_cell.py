@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import anndata as ad
 import pandas as pd
 import numpy as np
 from plot import plot_scatter, ScatterConfig, plot_frame_filtered, PlotConfig
@@ -23,6 +26,36 @@ def add_tissue_and_cells(data, cell_number):
     return merged
 
 
+def filter_clustered_h5ad(h5ad_path, cell_number):
+    h5ad_path = Path(h5ad_path)
+    if not h5ad_path.exists():
+        print(f'Warning: clustered.h5ad not found at {h5ad_path}; skipping tissue filtering.')
+        return
+
+    adata = ad.read_h5ad(h5ad_path)
+    required = {'x', 'y'}
+    missing = required.difference(adata.obs.columns)
+    if missing:
+        raise ValueError(
+            f'clustered.h5ad obs is missing coordinate columns: {sorted(missing)}'
+        )
+
+    tissue_coordinates = pd.MultiIndex.from_frame(
+        cell_number.loc[cell_number['in_tissue'], ['x', 'y']]
+    )
+    h5ad_coordinates = pd.MultiIndex.from_frame(adata.obs[['x', 'y']])
+    keep = h5ad_coordinates.isin(tissue_coordinates)
+    filtered = adata[keep].copy()
+
+    output_path = h5ad_path.with_name(f'{h5ad_path.stem}.tissuefiltered.h5ad')
+    filtered.write_h5ad(output_path)
+
+    print(
+        f'Tissue-filtered clustered.h5ad: {adata.n_obs} -> {filtered.n_obs} '
+        f'spots; saved to {output_path}'
+    )
+
+
 def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_config):
     cell_number = load_cell_numbers(cell_number_file)
     for m in method:
@@ -31,6 +64,7 @@ def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_con
         data = pd.read_csv(data_path, header = 0)
         merge_data = add_tissue_and_cells(data, cell_number)
         merge_data.to_csv(m_path + '/' + 'data_tissuefiltered.csv', index = False)
+        filter_clustered_h5ad(Path(m_path) / 'clustered.h5ad', cell_number)
         print(data_path)
         print(f'Tissue-filtered spots: {len(merge_data)}')
         print(f'Total UMI: {np.sum(merge_data["umi_count"])}')

@@ -81,7 +81,7 @@ copy_rctd_outputs() {
 }
 
 pixi_env_dir=${pixi_env_dir:-$REPO_DIR}
-spatial_h5ad="${mrna_dir:-}/raw/clustered.h5ad"
+spatial_h5ad="${mrna_dir:-}/raw/clustered.tissuefiltered.h5ad"
 deconv_output="${mrna_output_path:-}/results/deconv"
 banksy_output="$deconv_output/banksy_output"
 orientation=${orientation}

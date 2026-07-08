@@ -21,13 +21,51 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
+from matplotlib.collections import PatchCollection
+from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageOps
 
 
-FIG_SIZE = (5.0, 5.1)
+BASE_GRID_SPOTS = 50
+BASE_PLOT_SIZE = 4.37
+LEGEND_WIDTH = 0.63
+VERTICAL_MARGIN = 0.73
+SPOT_SIDE_LENGTH = 0.82
 PLOT_EDGE_PAD = 0.9
+
+
+def spatial_figure_layout(
+    x_spots: int, y_spots: int
+) -> tuple[tuple[float, float], list[float]]:
+    """Scale the spatial panel beyond 50 spots while keeping the legend fixed."""
+    inches_per_spot = BASE_PLOT_SIZE / BASE_GRID_SPOTS
+    plot_width = max(BASE_PLOT_SIZE, x_spots * inches_per_spot)
+    plot_height = max(BASE_PLOT_SIZE, y_spots * inches_per_spot)
+    return (
+        (plot_width + LEGEND_WIDTH, plot_height + VERTICAL_MARGIN),
+        [plot_width, LEGEND_WIDTH],
+    )
+
+
+def draw_spot_grid(axis, frame: pd.DataFrame, colors) -> None:
+    """Draw equal-sized grid cells with a uniform gap in data coordinates."""
+    half_side = SPOT_SIDE_LENGTH / 2
+    cells = [
+        Rectangle(
+            (row.plot_x - half_side, row.plot_y - half_side),
+            SPOT_SIDE_LENGTH,
+            SPOT_SIDE_LENGTH,
+        )
+        for row in frame.itertuples(index=False)
+    ]
+    collection = PatchCollection(
+        cells,
+        facecolors=list(colors),
+        edgecolors="none",
+    )
+    axis.add_collection(collection)
 
 
 def parse_args() -> argparse.Namespace:
@@ -433,19 +471,13 @@ def save_outputs(
     }
     point_colors = plot_table["cluster"].map(legend_colors)
 
+    figure_size, width_ratios = spatial_figure_layout(plot_x_spots, plot_y_spots)
     figure, (axis, legend_axis) = plt.subplots(
         ncols=2,
-        figsize=FIG_SIZE,
-        gridspec_kw={"width_ratios": [5.7, 0.82]},
+        figsize=figure_size,
+        gridspec_kw={"width_ratios": width_ratios},
     )
-    axis.scatter(
-        plot_table["plot_x"],
-        plot_table["plot_y"],
-        c=point_colors,
-        marker="s",
-        s=28,
-        linewidths=0,
-    )
+    draw_spot_grid(axis, plot_table, point_colors)
     axis.set_xlim(-PLOT_EDGE_PAD, plot_x_spots - 1 + PLOT_EDGE_PAD)
     axis.set_ylim(-PLOT_EDGE_PAD, plot_y_spots - 1 + PLOT_EDGE_PAD)
     axis.set_aspect("equal")

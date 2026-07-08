@@ -19,8 +19,9 @@ import textwrap
 import anndata as ad
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
+from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 import pandas as pd
 
 
@@ -28,9 +29,48 @@ LABELS = ("CA", "RA", "TA")
 PLOT_EDGE_PAD = 0.9
 TITLE_WRAP_WIDTH = 36
 TITLE_LINE_COUNT = 3
-FIG_SIZE = (5.0, 5.1)
+BASE_GRID_SPOTS = 50
+BASE_PLOT_SIZE = 4.37
+LEGEND_WIDTH = 0.63
+VERTICAL_MARGIN = 0.73
+SPOT_SIDE_LENGTH = 0.82
 FIG_TOP = 0.84
 FIG_BOTTOM = 0.04
+
+
+def spatial_figure_layout(
+    x_spots: int, y_spots: int
+) -> tuple[tuple[float, float], list[float]]:
+    """Scale the spatial panel beyond 50 spots while keeping the legend fixed."""
+    inches_per_spot = BASE_PLOT_SIZE / BASE_GRID_SPOTS
+    plot_width = max(BASE_PLOT_SIZE, x_spots * inches_per_spot)
+    plot_height = max(BASE_PLOT_SIZE, y_spots * inches_per_spot)
+    return (
+        (plot_width + LEGEND_WIDTH, plot_height + VERTICAL_MARGIN),
+        [plot_width, LEGEND_WIDTH],
+    )
+
+
+def draw_spot_grid(
+    ax, frame: pd.DataFrame, color_column: str, alpha: float = 1.0
+) -> None:
+    """Draw equal-sized grid cells with a uniform gap in data coordinates."""
+    half_side = SPOT_SIDE_LENGTH / 2
+    cells = [
+        Rectangle(
+            (row.plot_x - half_side, row.plot_y - half_side),
+            SPOT_SIDE_LENGTH,
+            SPOT_SIDE_LENGTH,
+        )
+        for row in frame.itertuples(index=False)
+    ]
+    collection = PatchCollection(
+        cells,
+        facecolors=frame[color_column].tolist(),
+        edgecolors="none",
+        alpha=alpha,
+    )
+    ax.add_collection(collection)
 
 
 def parse_args() -> argparse.Namespace:
@@ -374,20 +414,13 @@ def _plot_lr_spatial(
     ]
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure_size, width_ratios = spatial_figure_layout(plot_x_spots, plot_y_spots)
     fig, (ax, legend_ax) = plt.subplots(
         ncols=2,
-        figsize=FIG_SIZE,
-        gridspec_kw={"width_ratios": [5.7, 0.82]},
+        figsize=figure_size,
+        gridspec_kw={"width_ratios": width_ratios},
     )
-    ax.scatter(
-        cluster_frame["plot_x"],
-        cluster_frame["plot_y"],
-        s=28,
-        c=cluster_frame["color"],
-        marker="s",
-        alpha=cluster_alpha,
-        linewidths=0,
-    )
+    draw_spot_grid(ax, cluster_frame, "color", alpha=cluster_alpha)
     if not lr_spots.empty:
         ax.scatter(
             lr_spots["plot_x"],

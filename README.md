@@ -69,8 +69,10 @@ cp /path/to/DBiT-spatial-DARLIN/config/config.example.sh /path/to/sample_name/co
 ```
 
 Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
-mode, and SLURM resources where applicable. Use `execution_mode=local` for a
-local run or `execution_mode=hpc` for SLURM submission.
+mode, and SLURM resources where applicable. Domain analysis additionally
+requires `rctd_reference_dir`; adjust the RCTD reference column settings to
+match the reference atlas. Use `execution_mode=local` for a local run or
+`execution_mode=hpc` for SLURM submission.
 
 Run `dbit` from the dataset directory. By default it loads `./config.sh`; use
 `--config <file>` only when the configuration is stored elsewhere.
@@ -80,7 +82,7 @@ Run `dbit` from the dataset directory. By default it loads `./config.sh`; use
 The recommended order is:
 
 ```text
-mrna → image → amplicon → filter → clone
+mrna → image → amplicon → filter → domain → clone
 ```
 
 ### mRNA QC
@@ -91,7 +93,7 @@ spatial expression and clustering results.
 ```bash
 cd /path/to/sample_name
 dbit mrna \
-    --input /path/to/sample_name/transcriptome/fastq \
+    --input ./transcriptome/fastq \
     --chip 50-20
 ```
 
@@ -102,7 +104,7 @@ tissue mask used by later filtering.
 
 ```bash
 dbit image \
-    --input /path/to/sample_name/image/align.png \
+    --input ./image/align.png \
     --orientation normal \
     --swap-xy False
 ```
@@ -114,7 +116,7 @@ and generate per-locus results.
 
 ```bash
 dbit amplicon \
-    --input /path/to/sample_name/amplicon/fastq
+    --input ./amplicon/fastq
 ```
 
 ### Tissue-filtered plots
@@ -126,19 +128,28 @@ merge spatial overlays with the grayscale tissue image.
 dbit filter
 ```
 
+### Domain analysis
+
+Identify spatial domains from the tissue-filtered mRNA results and plot the
+domain assignments over the grayscale tissue image.
+
+```bash
+dbit domain --rotate 0
+```
+
+For presentation, rotate only the domain grid while leaving its legends fixed:
+
+```bash
+dbit domain --rotate 90
+```
+
 ### Clone analysis
 
 Filter clone calls against the locus-specific allele banks and plot the top LR
 clones over the mRNA Leiden-cluster background.
 
 ```bash
-dbit clone
-```
-
-For presentation, rotate only the clone grid while leaving its legends fixed:
-
-```bash
-dbit clone --rotate 90
+dbit clone --rotate 0
 ```
 
 The first input path and chip selection are stored in the dataset config and
@@ -152,6 +163,7 @@ dbit mrna -h
 dbit image -h
 dbit amplicon -h
 dbit filter -h
+dbit domain -h
 dbit clone -h
 ```
 
@@ -166,6 +178,7 @@ sample_name/
 │   ├── fastq/
 │   ├── fastq_umi_barcode/
 │   └── results/
+│       ├── deconv/
 │       └── <sample>/
 │           └── Solo.out/
 ├── image/

@@ -27,9 +27,12 @@ BASE_GRID_SPOTS = 50
 BASE_PLOT_SIZE = 4.37
 LEGEND_COLUMN_WIDTH = 1.8
 COLORBAR_WIDTH = 0.45
+COLORBAR_GAP = 0.55
 VERTICAL_MARGIN = 0.73
 PLOT_EDGE_PAD = 0.9
 SPOT_SIDE_LENGTH = 0.82
+TOP_DOMINANT_TYPES = 15
+OTHER_CELL_TYPE = "Other"
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,14 +174,21 @@ def save_continuous_plot(
     y_spots: int,
     cmap: str = "Reds",
 ) -> None:
-    figure_size, width_ratios = figure_layout(
-        x_spots, y_spots, COLORBAR_WIDTH
+    figure_size, _ = figure_layout(
+        x_spots, y_spots, COLORBAR_GAP + COLORBAR_WIDTH
     )
-    figure, (axis, colorbar_axis) = plt.subplots(
-        ncols=2,
+    figure, (axis, gap_axis, colorbar_axis) = plt.subplots(
+        ncols=3,
         figsize=figure_size,
-        gridspec_kw={"width_ratios": width_ratios},
+        gridspec_kw={
+            "width_ratios": [
+                figure_size[0] - COLORBAR_GAP - COLORBAR_WIDTH,
+                COLORBAR_GAP,
+                COLORBAR_WIDTH,
+            ]
+        },
     )
+    gap_axis.axis("off")
     normalization = mcolors.Normalize(vmin=0.0, vmax=1.0)
     collection = PatchCollection(
         grid_cells(frame),
@@ -196,19 +206,25 @@ def save_continuous_plot(
     colorbar.ax.yaxis.set_label_position("left")
     colorbar.ax.tick_params(labelsize=8)
     figure.subplots_adjust(
-        left=0.028, right=0.90, top=0.92, bottom=0.04, wspace=0.08
+        left=0.028, right=0.90, top=0.92, bottom=0.04, wspace=0.0
     )
     figure.savefig(output_path, dpi=300)
     plt.close(figure)
 
 
 def categorical_colors(cell_types: list[str]) -> dict[str, str]:
-    if len(cell_types) <= 20:
-        palette = plt.get_cmap("tab20", len(cell_types))
+    if len(cell_types) <= TOP_DOMINANT_TYPES:
+        palette = [
+            color
+            for index, color in enumerate(plt.get_cmap("tab20").colors)
+            if index not in (14, 15)
+        ]
+        colors = palette[: len(cell_types)]
     else:
         palette = plt.get_cmap("gist_ncar", len(cell_types))
+        colors = [palette(index) for index in range(len(cell_types))]
     return {
-        cell_type: mcolors.to_hex(palette(index))
+        cell_type: mcolors.to_hex(colors[index])
         for index, cell_type in enumerate(cell_types)
     }
 
@@ -221,12 +237,22 @@ def save_dominant_plot(
     y_spots: int,
 ) -> None:
     dominant_set = set(frame["dominant_cell_type"])
-    dominant_types = [
-        cell_type
-        for cell_type in cell_types
-        if cell_type in dominant_set
+    dominant_counts = frame["dominant_cell_type"].value_counts()
+    cell_type_order = {cell_type: index for index, cell_type in enumerate(cell_types)}
+    ranked_types = sorted(
+        dominant_set,
+        key=lambda cell_type: (
+            -int(dominant_counts[cell_type]),
+            cell_type_order[cell_type],
+        ),
+    )
+    dominant_types = ranked_types[:TOP_DOMINANT_TYPES]
+    has_other = len(ranked_types) > TOP_DOMINANT_TYPES
+    displayed_types = [
+        *dominant_types,
+        *([OTHER_CELL_TYPE] if has_other else []),
     ]
-    legend_columns = max(1, math.ceil(len(dominant_types) / 25))
+    legend_columns = max(1, math.ceil(len(displayed_types) / 25))
     legend_width = LEGEND_COLUMN_WIDTH * legend_columns
     figure_size, width_ratios = figure_layout(x_spots, y_spots, legend_width)
     figure, (axis, legend_axis) = plt.subplots(
@@ -234,8 +260,14 @@ def save_dominant_plot(
         figsize=figure_size,
         gridspec_kw={"width_ratios": width_ratios},
     )
-    color_map = categorical_colors(cell_types)
-    cell_colors = [color_map[value] for value in frame["dominant_cell_type"]]
+    color_map = categorical_colors(dominant_types)
+    if has_other:
+        color_map[OTHER_CELL_TYPE] = "#bdbdbd"
+    display_values = frame["dominant_cell_type"].where(
+        frame["dominant_cell_type"].isin(dominant_types),
+        OTHER_CELL_TYPE,
+    )
+    cell_colors = [color_map[value] for value in display_values]
     axis.add_collection(
         PatchCollection(
             grid_cells(frame),
@@ -244,13 +276,16 @@ def save_dominant_plot(
         )
     )
     configure_spatial_axis(
-        axis, x_spots, y_spots, "RCTD dominant cell type"
+        axis,
+        x_spots,
+        y_spots,
+        f"RCTD dominant cell type (top {TOP_DOMINANT_TYPES} + Other)",
     )
     legend_axis.axis("off")
     legend_axis.legend(
         handles=[
             Patch(facecolor=color_map[cell_type], label=cell_type)
-            for cell_type in dominant_types
+            for cell_type in displayed_types
         ],
         title="cell type",
         loc="upper left",

@@ -184,5 +184,6 @@ cython_debug/
 .pixi
 .pixi/*
 !.pixi/config.toml
-path.txt
-my_config.sh
+
+# Local DBiT configuration
+/config/config.sh

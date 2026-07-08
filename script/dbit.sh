@@ -4,6 +4,7 @@ set -o pipefail
 SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}") || exit 1
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd) || exit 1
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
+START_DIR=$(pwd -P) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
 LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
 DOMAIN_SCRIPT_DIR="$SCRIPT_DIR/Domain_Analysis"
@@ -28,12 +29,10 @@ EOF
 
 show_mrna_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME mrna --config <file> [options]
-
-Required:
-  --config <file>   Per-dataset configuration file
+Usage: $PROGRAM_NAME mrna [--config <file>] [options]
 
 Optional:
+  --config <file>        Configuration file (default: ./config.sh)
   --input <path>         Transcriptome FASTQ directory; required only before stored
   --chip <name>          50-50, 50-20, or 100-20; required only before stored
   --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
@@ -44,12 +43,10 @@ EOF
 
 show_amplicon_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME amplicon --config <file> [options]
-
-Required:
-  --config <file>   Per-dataset configuration file
+Usage: $PROGRAM_NAME amplicon [--config <file>] [options]
 
 Optional:
+  --config <file>                                 Configuration file (default: ./config.sh)
   --input <path>                                  Amplicon FASTQ directory; required only before stored
   --chip <name>                                   50-50, 50-20, or 100-20; required only before stored
   --initial-reads-cutoff <int>                    Non-negative reads cutoff for initial filtering (default: 100)
@@ -62,12 +59,10 @@ EOF
 
 show_image_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME image --config <file> [options]
-
-Required:
-  --config <file>         Per-dataset configuration file
+Usage: $PROGRAM_NAME image [--config <file>] [options]
 
 Optional:
+  --config <file>         Configuration file (default: ./config.sh)
   --input <path>          Registered input image; required only before stored
   --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
   --swap-xy <bool>        True or False (case-insensitive); required only before stored
@@ -80,22 +75,19 @@ EOF
 
 show_filter_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME filter --config <file>
+Usage: $PROGRAM_NAME filter [--config <file>]
 
-Required:
-  --config <file>   Configuration populated by earlier data steps
-
+Optional:
+  --config <file>   Configuration file (default: ./config.sh)
 EOF
 }
 
 show_clone_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME clone --config <file> [options]
-
-Required:
-  --config <file>     Configuration populated by earlier data steps
+Usage: $PROGRAM_NAME clone [--config <file>] [options]
 
 Optional:
+  --config <file>      Configuration file (default: ./config.sh)
   --labels <list>      Comma-separated labels (default: CA,RA,TA)
   --top-n <int>        Positive number of LR plots per label (default: 10)
   --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270
@@ -104,12 +96,10 @@ EOF
 
 show_domain_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME domain --config <file> [options]
-
-Required:
-  --config <file>   Configuration populated by the mRNA step
+Usage: $PROGRAM_NAME domain [--config <file>] [options]
 
 Optional:
+  --config <file>       Configuration file (default: ./config.sh)
   --lambda <float>       BANKSY spatial contribution from 0 to 1 (default: 0.8)
   --resolution <float>   Positive BANKSY Leiden resolution (default: 1.0)
   --rotate <degrees>     Clockwise grid rotation for display: 0, 90, 180, or 270
@@ -292,11 +282,16 @@ if [[ -n "$cli_reads_fraction_mode" ]]; then
     esac
 fi
 
+if [[ -z "$config_file" ]]; then
+    config_file="$START_DIR/config.sh"
+fi
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2
+    echo "Run dbit from a dataset directory containing config.sh, or pass --config <file>." >&2
     exit 1
 fi
 config_abs=$(realpath "$config_file")
+echo "Using config: $config_abs"
 
 # Load stored values first. Command-line values below take precedence and are
 # appended to the config so that later runs can reuse them.

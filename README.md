@@ -65,12 +65,15 @@ source ~/.bashrc
 Copy the configuration template for each dataset:
 
 ```bash
-cp /path/to/DBiT-spatial-DARLIN/script/config.sh /path/to/sample_name/config.sh
+cp /path/to/DBiT-spatial-DARLIN/config/config.example.sh /path/to/sample_name/config.sh
 ```
 
 Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
 mode, and SLURM resources where applicable. Use `execution_mode=local` for a
 local run or `execution_mode=hpc` for SLURM submission.
+
+Run `dbit` from the dataset directory. By default it loads `./config.sh`; use
+`--config <file>` only when the configuration is stored elsewhere.
 
 ## Usage
 
@@ -86,8 +89,8 @@ Preprocess transcriptome FASTQs, run STAR, calculate QC metrics, and generate
 spatial expression and clustering results.
 
 ```bash
+cd /path/to/sample_name
 dbit mrna \
-    --config /path/to/sample_name/config.sh \
     --input /path/to/sample_name/transcriptome/fastq \
     --chip 50-20
 ```
@@ -99,7 +102,6 @@ tissue mask used by later filtering.
 
 ```bash
 dbit image \
-    --config /path/to/sample_name/config.sh \
     --input /path/to/sample_name/image/align.png \
     --orientation normal \
     --swap-xy False
@@ -112,7 +114,6 @@ and generate per-locus results.
 
 ```bash
 dbit amplicon \
-    --config /path/to/sample_name/config.sh \
     --input /path/to/sample_name/amplicon/fastq
 ```
 
@@ -122,7 +123,7 @@ Apply image-derived cell/tissue filtering to the mRNA and amplicon results and
 merge spatial overlays with the grayscale tissue image.
 
 ```bash
-dbit filter --config /path/to/sample_name/config.sh
+dbit filter
 ```
 
 ### Clone analysis
@@ -131,13 +132,13 @@ Filter clone calls against the locus-specific allele banks and plot the top LR
 clones over the mRNA Leiden-cluster background.
 
 ```bash
-dbit clone --config /path/to/sample_name/config.sh
+dbit clone
 ```
 
 For presentation, rotate only the clone grid while leaving its legends fixed:
 
 ```bash
-dbit clone --config /path/to/sample_name/config.sh --rotate 90
+dbit clone --rotate 90
 ```
 
 The first input path and chip selection are stored in the dataset config and

@@ -6,18 +6,45 @@ Usage:
         [--orientation <mode>] [--swap_xy]
 
 For each frame passed with --frame, the script will:
-  1. Transform the image according to --orientation, then --swap_xy when requested.
-  2. Resize gray.png to match the transformed image.
-  3. Composite the RGBA overlay onto the gray background.
-  4. Save as merged_<original_filename> in the same directory.
+  1. Reuse gray.downsampled.png, or create it with width and height divided by 10
+     while keeping each dimension at least 1500 pixels.
+  2. Transform the image according to --orientation, then --swap_xy when requested.
+  3. Resize the downsampled gray image to match the transformed image.
+  4. Composite the RGBA overlay onto the gray background.
+  5. Save as merged_<original_filename> in the same directory.
 """
 import argparse
 import os
+from pathlib import Path
 
 from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = None 
 
 ORIENTATION_CHOICES = ("normal", "horizontal", "vertical", "rotate")
+DOWNSAMPLE_FACTOR = 10
+MIN_DOWNSAMPLED_DIMENSION = 1500
+
+
+def get_downsampled_gray(gray_path: str) -> Path:
+    """Return the cached gray image, creating a 10x-per-axis version if needed."""
+    source_path = Path(gray_path)
+    downsampled_path = source_path.with_name("gray.downsampled.png")
+    if downsampled_path.is_file():
+        return downsampled_path
+
+    with Image.open(source_path) as gray:
+        downsampled_size = (
+            max(MIN_DOWNSAMPLED_DIMENSION, gray.width // DOWNSAMPLE_FACTOR),
+            max(MIN_DOWNSAMPLED_DIMENSION, gray.height // DOWNSAMPLE_FACTOR),
+        )
+        gray.resize(downsampled_size, resample=Image.Resampling.LANCZOS).save(
+            downsampled_path
+        )
+    print(
+        f"Downsampled gray image: {source_path} -> {downsampled_path} "
+        f"({downsampled_size[0]}x{downsampled_size[1]})"
+    )
+    return downsampled_path
 
 def set_opacity(img: Image.Image, opacity: float) -> Image.Image:
     """Return a copy of img with its alpha channel scaled by opacity (0-1)."""
@@ -82,11 +109,15 @@ def main() -> None:
     if not os.path.isfile(args.gray):
         raise FileNotFoundError(f"gray image not found: {args.gray}")
 
+    downsampled_gray = get_downsampled_gray(args.gray)
+
     for frame_path in args.frame:
         if not os.path.isfile(frame_path):
             print(f"Skipping missing frame: {frame_path}")
             continue
-        merge_on_gray(frame_path, args.gray, args.orientation, args.swap_xy)
+        merge_on_gray(
+            frame_path, str(downsampled_gray), args.orientation, args.swap_xy
+        )
         print(f"Merged: {frame_path} -> merged_{os.path.basename(frame_path)}")
 
 

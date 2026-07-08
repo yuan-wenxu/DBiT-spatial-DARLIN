@@ -34,6 +34,8 @@ LEGEND_WIDTH = 0.63
 VERTICAL_MARGIN = 0.73
 SPOT_SIDE_LENGTH = 0.82
 PLOT_EDGE_PAD = 0.9
+DOWNSAMPLE_FACTOR = 10
+MIN_OUTPUT_DIMENSION = 1500
 
 
 def spatial_figure_layout(
@@ -347,8 +349,14 @@ def resize_spot_image(
     pixel_length: float,
 ) -> Image.Image:
     width, height = spot_frame_size(x_spots, y_spots, length_spot, interval)
-    resized_width = int(width / pixel_length)
-    resized_height = int(height / pixel_length)
+    resized_width = max(
+        MIN_OUTPUT_DIMENSION,
+        int(width / pixel_length) // DOWNSAMPLE_FACTOR,
+    )
+    resized_height = max(
+        MIN_OUTPUT_DIMENSION,
+        int(height / pixel_length) // DOWNSAMPLE_FACTOR,
+    )
     return image.resize((resized_width, resized_height), resample=Image.NEAREST)
 
 

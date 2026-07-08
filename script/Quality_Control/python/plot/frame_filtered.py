@@ -3,6 +3,31 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 from PIL import Image
 
+DOWNSAMPLE_FACTOR = 10
+MIN_OUTPUT_DIMENSION = 1500
+
+
+def resized_frame_size(config):
+    original_width = int(
+        (
+            config.x_spots_number * config.length_spot
+            + (config.x_spots_number - 1) * config.interval
+        )
+        / config.pixel_length
+    )
+    original_height = int(
+        (
+            config.y_spots_number * config.length_spot
+            + (config.y_spots_number - 1) * config.interval
+        )
+        / config.pixel_length
+    )
+    return (
+        max(MIN_OUTPUT_DIMENSION, original_width // DOWNSAMPLE_FACTOR),
+        max(MIN_OUTPUT_DIMENSION, original_height // DOWNSAMPLE_FACTOR),
+    )
+
+
 def legend(data, output_path, name):
     values = np.asarray(data, dtype=float)
     values = values[np.isfinite(values) & (values > 0)]
@@ -53,6 +78,8 @@ def legend(data, output_path, name):
     plt.close()
 
 def plot_frame(data, output_path, config):
+
+    output_size = resized_frame_size(config)
 
     positive_cell_spots = data['count'] > 0 if 'count' in data.columns else None
     has_umi_per_cell = (
@@ -137,9 +164,7 @@ def plot_frame(data, output_path, config):
 
     if 'leiden' in data.columns:
         img_umap = Image.fromarray(frame, mode = 'RGBA')
-        img_umap = img_umap.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                    int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                    resample = Image.NEAREST)
+        img_umap = img_umap.resize(output_size, resample = Image.NEAREST)
         img_umap.save(f'{output_path}/umap_filtered.png')
     if 'umi_count' in data.columns:
         nozero = frame_umi[:, :, 3][frame_umi[:, :, 3] > 0]
@@ -158,16 +183,14 @@ def plot_frame(data, output_path, config):
             frame_umi_per_cell = frame_umi_per_cell.astype(np.uint8)
 
         img_umi = Image.fromarray(frame_umi, mode = 'RGBA')
-        img_umi = img_umi.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                  int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                  resample = Image.NEAREST)
+        img_umi = img_umi.resize(output_size, resample = Image.NEAREST)
         img_umi.save(f'{output_path}/umi_filtered.png')
 
         if has_umi_per_cell:
             img_umi_per_cell = Image.fromarray(frame_umi_per_cell, mode = 'RGBA')
-            img_umi_per_cell = img_umi_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                                        int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                                        resample = Image.NEAREST)
+            img_umi_per_cell = img_umi_per_cell.resize(
+                output_size, resample = Image.NEAREST
+            )
             img_umi_per_cell.save(f'{output_path}/umi_per_cell_filtered.png')
 
     if 'gene_count' in data.columns:
@@ -188,14 +211,12 @@ def plot_frame(data, output_path, config):
 
         
         img_gene = Image.fromarray(frame_gene, mode = 'RGBA')
-        img_gene = img_gene.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                    int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                    resample = Image.NEAREST)
+        img_gene = img_gene.resize(output_size, resample = Image.NEAREST)
         img_gene.save(f'{output_path}/gene_filtered.png')
 
         if has_gene_per_cell:
             img_gene_per_cell = Image.fromarray(frame_gene_per_cell, mode = 'RGBA')
-            img_gene_per_cell = img_gene_per_cell.resize((int((config.x_spots_number * config.length_spot + (config.x_spots_number - 1) * config.interval)/config.pixel_length),
-                                                          int((config.y_spots_number * config.length_spot + (config.y_spots_number - 1) * config.interval)/config.pixel_length)),
-                                                          resample = Image.NEAREST)
+            img_gene_per_cell = img_gene_per_cell.resize(
+                output_size, resample = Image.NEAREST
+            )
             img_gene_per_cell.save(f'{output_path}/gene_per_cell_filtered.png')

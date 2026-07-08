@@ -19,6 +19,7 @@ SCRIPT_DIR=${DOMAIN_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} |
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 R_SCRIPT="$SCRIPT_DIR/R/spacexr.R"
 PYTHON_SCRIPT="$SCRIPT_DIR/python/banksy_cluster.py"
+RCTD_PLOT_SCRIPT="$SCRIPT_DIR/python/rctd_visualize.py"
 MERGE_SCRIPT="$REPO_DIR/script/Quality_Control/python/image_process/merge_on_gray.py"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
@@ -91,7 +92,7 @@ if [[ ! -d "$pixi_env_dir" ]]; then
     echo "Error: pixi environment directory not found: $pixi_env_dir" >&2
     exit 1
 fi
-if [[ ! -f "$R_SCRIPT" || ! -f "$PYTHON_SCRIPT" ]]; then
+if [[ ! -f "$R_SCRIPT" || ! -f "$PYTHON_SCRIPT" || ! -f "$RCTD_PLOT_SCRIPT" ]]; then
     echo "Error: Domain Analysis worker script is missing." >&2
     exit 1
 fi
@@ -183,6 +184,20 @@ else
         copy_rctd_outputs "$scratch_deconv" "$deconv_output" || exit 1
     fi
 fi
+
+plot_args=(
+    python -B "$RCTD_PLOT_SCRIPT"
+    --weights-file "$deconv_output/cell_type_weights.csv"
+    --output-dir "$deconv_output/rctd_plots"
+    --x-spots-number "$x_spots_number"
+    --y-spots-number "$y_spots_number"
+    --orientation "$orientation"
+    --rotate "$display_rotate"
+)
+[[ "$swap_xy" == True ]] && plot_args+=(--swap-xy)
+
+echo "Plotting Step1 RCTD cell-type weights: $deconv_output/rctd_plots"
+run_pixi default "${plot_args[@]}" || exit 1
 
 run_banksy_output=$banksy_output
 

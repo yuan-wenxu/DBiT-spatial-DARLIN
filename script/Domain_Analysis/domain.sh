@@ -21,6 +21,14 @@ R_SCRIPT="$SCRIPT_DIR/R/spacexr.R"
 PYTHON_SCRIPT="$SCRIPT_DIR/python/banksy_cluster.py"
 RCTD_PLOT_SCRIPT="$SCRIPT_DIR/python/rctd_visualize.py"
 MERGE_SCRIPT="$REPO_DIR/script/Quality_Control/python/image_process/merge_on_gray.py"
+CHIP_FILE="$REPO_DIR/config/chip.sh"
+
+if [[ ! -f "$CHIP_FILE" ]]; then
+    echo "Error: chip preset file not found: $CHIP_FILE" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$CHIP_FILE"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
 if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
@@ -87,6 +95,15 @@ deconv_output="${mrna_output_path:-}/results/deconv"
 banksy_output="$deconv_output/banksy_output"
 orientation=${orientation}
 display_rotate=${rotate}
+if [[ -z ${chip:-} ]]; then
+    echo "Error: chip must be set in the config. Valid chips: $(chip_preset_names_csv)." >&2
+    exit 1
+fi
+apply_chip_preset "$chip" || {
+    echo "Error: unsupported chip '$chip'." >&2
+    echo "Valid chips: $(chip_preset_names_csv)." >&2
+    exit 1
+}
 
 if [[ ! -d "$pixi_env_dir" ]]; then
     echo "Error: pixi environment directory not found: $pixi_env_dir" >&2
@@ -112,6 +129,11 @@ case "${swap_xy:-False}" in
     True|true|TRUE|1|yes|YES) swap_xy=True ;;
     False|false|FALSE|0|no|NO|"") swap_xy=False ;;
     *) echo "Error: swap_xy must be True or False." >&2; exit 1 ;;
+esac
+case "$banksy_subcluster" in
+    True|true|TRUE|1|yes|YES) banksy_subcluster=True ;;
+    False|false|FALSE|0|no|NO|"") banksy_subcluster=False ;;
+    *) echo "Error: banksy_subcluster must be True or False." >&2; exit 1 ;;
 esac
 
 if [[ -z "$display_rotate" ]]; then
@@ -222,6 +244,21 @@ banksy_args=(
     --rotate "$display_rotate"
 )
 [[ "$swap_xy" == True ]] && banksy_args+=(--swap_xy)
+if [[ "$banksy_subcluster" == True ]]; then
+    banksy_args+=(
+        --subcluster
+        --subcluster-min-parent-spots "$banksy_subcluster_min_parent_spots"
+        --subcluster-min-spots "$banksy_subcluster_min_spots"
+        --subcluster-max-depth "$banksy_subcluster_max_depth"
+        --subcluster-resolution "$banksy_subcluster_resolution"
+        --subcluster-spatial-neighbors "$banksy_subcluster_spatial_neighbors"
+        --subcluster-cluster-neighbors "$banksy_subcluster_cluster_neighbors"
+        --subcluster-max-dominant-fraction "$banksy_subcluster_max_dominant_fraction"
+        --subcluster-min-differential-cell-types "$banksy_subcluster_min_differential_cell_types"
+    )
+    [[ -n "$banksy_subcluster_lambda" ]] && banksy_args+=(--subcluster-lambda-param "$banksy_subcluster_lambda")
+    [[ -n "$banksy_subcluster_pca_components" ]] && banksy_args+=(--subcluster-pca-components "$banksy_subcluster_pca_components")
+fi
 
 echo "Running Step2 BANKSY: $run_banksy_output"
 run_pixi default "${banksy_args[@]}" || exit 1

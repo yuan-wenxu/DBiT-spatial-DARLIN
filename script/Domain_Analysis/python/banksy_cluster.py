@@ -36,18 +36,30 @@ SPOT_SIDE_LENGTH = 0.82
 PLOT_EDGE_PAD = 0.9
 DOWNSAMPLE_FACTOR = 10
 MIN_OUTPUT_DIMENSION = 1500
+CELL_TYPE_DIFFERENCE_THRESHOLD = 0.05
 
 
 def spatial_figure_layout(
-    x_spots: int, y_spots: int
-) -> tuple[tuple[float, float], list[float]]:
-    """Scale the spatial panel beyond 50 spots while keeping the legend fixed."""
+    x_spots: int, y_spots: int, cluster_count: int
+) -> tuple[tuple[float, float], list[float], dict]:
+    """Scale the spatial panel and make enough room for large legends."""
     inches_per_spot = BASE_PLOT_SIZE / BASE_GRID_SPOTS
     plot_width = max(BASE_PLOT_SIZE, x_spots * inches_per_spot)
     plot_height = max(BASE_PLOT_SIZE, y_spots * inches_per_spot)
+    figure_height = plot_height + VERTICAL_MARGIN
+    legend_font_size = 8 if cluster_count <= 30 else 7 if cluster_count <= 60 else 6
+    row_height = 0.22 if legend_font_size >= 8 else 0.19 if legend_font_size == 7 else 0.16
+    max_legend_rows = max(8, int((figure_height - 0.45) / row_height))
+    legend_columns = max(1, (cluster_count + max_legend_rows - 1) // max_legend_rows)
+    legend_width = max(LEGEND_WIDTH, 0.64 * legend_columns + 0.1)
     return (
-        (plot_width + LEGEND_WIDTH, plot_height + VERTICAL_MARGIN),
-        [plot_width, LEGEND_WIDTH],
+        (plot_width + legend_width, figure_height),
+        [plot_width, legend_width],
+        {
+            "ncols": legend_columns,
+            "fontsize": legend_font_size,
+            "title_fontsize": legend_font_size + 1,
+        },
     )
 
 
@@ -194,6 +206,77 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not normalize each spot's RCTD weights to sum to one.",
     )
+    parser.add_argument(
+        "--subcluster",
+        action="store_true",
+        help="Recluster large BANKSY domains once to produce sub-domain labels.",
+    )
+    parser.add_argument(
+        "--subcluster-min-parent-spots",
+        type=int,
+        default=40,
+        help="Minimum parent-domain spot count required for subclustering (default: 40).",
+    )
+    parser.add_argument(
+        "--subcluster-min-spots",
+        type=int,
+        default=10,
+        help="Minimum accepted subcluster spot count (default: 10).",
+    )
+    parser.add_argument(
+        "--subcluster-max-depth",
+        type=int,
+        choices=(1,),
+        default=1,
+        help="Maximum subclustering depth. This first implementation supports 1.",
+    )
+    parser.add_argument(
+        "--subcluster-resolution",
+        type=float,
+        default=0.5,
+        help="Leiden resolution for within-domain subclustering (default: 0.5).",
+    )
+    parser.add_argument(
+        "--subcluster-spatial-neighbors",
+        type=int,
+        default=8,
+        help="BANKSY spatial neighbours for within-domain subclustering (default: 8).",
+    )
+    parser.add_argument(
+        "--subcluster-cluster-neighbors",
+        type=int,
+        default=12,
+        help="Leiden neighbours for within-domain subclustering (default: 12).",
+    )
+    parser.add_argument(
+        "--subcluster-lambda-param",
+        type=float,
+        help="Spatial-neighbour contribution for subclustering (default: --lambda-param).",
+    )
+    parser.add_argument(
+        "--subcluster-pca-components",
+        type=int,
+        help="PCA components for subclustering (default: --pca-components).",
+    )
+    parser.add_argument(
+        "--subcluster-max-dominant-fraction",
+        type=float,
+        default=0.9,
+        help=(
+            "Reject subclustering if the largest subcluster keeps more than this "
+            "fraction of the parent domain (default: 0.9)."
+        ),
+    )
+    parser.add_argument(
+        "--subcluster-min-differential-cell-types",
+        type=int,
+        default=2,
+        help=(
+            "Merge two subclusters when fewer than this many cell types differ "
+            f"by at least {CELL_TYPE_DIFFERENCE_THRESHOLD:g} in mean RCTD weight "
+            "(default: 2)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -218,6 +301,22 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--interval must be a non-negative integer")
     if args.pixel_length <= 0:
         raise SystemExit("--pixel-length must be greater than zero")
+    if args.subcluster_min_parent_spots < 3:
+        raise SystemExit("--subcluster-min-parent-spots must be at least 3")
+    if args.subcluster_min_spots < 1:
+        raise SystemExit("--subcluster-min-spots must be a positive integer")
+    if args.subcluster_resolution <= 0:
+        raise SystemExit("--subcluster-resolution must be greater than zero")
+    if args.subcluster_spatial_neighbors < 1 or args.subcluster_cluster_neighbors < 1:
+        raise SystemExit("Subclustering neighbour counts must be positive integers")
+    if args.subcluster_lambda_param is not None and not 0.0 <= args.subcluster_lambda_param <= 1.0:
+        raise SystemExit("--subcluster-lambda-param must be between 0 and 1")
+    if args.subcluster_pca_components is not None and args.subcluster_pca_components < 1:
+        raise SystemExit("--subcluster-pca-components must be a positive integer")
+    if not 0.0 < args.subcluster_max_dominant_fraction <= 1.0:
+        raise SystemExit("--subcluster-max-dominant-fraction must be between 0 and 1")
+    if args.subcluster_min_differential_cell_types < 0:
+        raise SystemExit("--subcluster-min-differential-cell-types must be non-negative")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -360,16 +459,40 @@ def resize_spot_image(
 
 
 def run_banksy(adata, args: argparse.Namespace):
+    return run_banksy_partition(
+        adata=adata,
+        lambda_param=args.lambda_param,
+        resolution=args.resolution,
+        spatial_neighbors_arg=args.spatial_neighbors,
+        cluster_neighbors_arg=args.cluster_neighbors,
+        pca_components_arg=args.pca_components,
+        max_m=args.max_m,
+        neighbor_decay=args.neighbor_decay,
+        seed=args.seed,
+    )
+
+
+def run_banksy_partition(
+    adata,
+    lambda_param: float,
+    resolution: float,
+    spatial_neighbors_arg: int,
+    cluster_neighbors_arg: int,
+    pca_components_arg: int,
+    max_m: int,
+    neighbor_decay: str,
+    seed: int,
+):
     if adata.n_obs < 3:
         raise SystemExit("BANKSY clustering requires at least three spots")
 
-    spatial_neighbors = min(args.spatial_neighbors, adata.n_obs - 1)
+    spatial_neighbors = min(spatial_neighbors_arg, adata.n_obs - 1)
     banksy_dict = initialize_banksy(
         adata,
         coord_keys=("x", "y", "spatial"),
         num_neighbours=spatial_neighbors,
-        nbr_weight_decay=args.neighbor_decay,
-        max_m=args.max_m,
+        nbr_weight_decay=neighbor_decay,
+        max_m=max_m,
         plt_edge_hist=False,
         plt_nbr_weights=False,
         plt_agf_angles=False,
@@ -378,28 +501,28 @@ def run_banksy(adata, args: argparse.Namespace):
     banksy_dict, banksy_adata = generate_banksy_matrix(
         adata,
         banksy_dict,
-        lambda_list=[float(args.lambda_param)],
-        max_m=args.max_m,
+        lambda_list=[float(lambda_param)],
+        max_m=max_m,
         plot_std=False,
         save_matrix=False,
         verbose=False,
     )
 
     max_components = min(banksy_adata.n_obs - 1, banksy_adata.n_vars)
-    pca_components = min(args.pca_components, max_components)
+    pca_components = min(pca_components_arg, max_components)
     pca_umap(
         banksy_dict,
         pca_dims=[pca_components],
         plt_remaining_var=False,
         add_umap=False,
     )
-    cluster_neighbors = min(args.cluster_neighbors, adata.n_obs - 1)
+    cluster_neighbors = min(cluster_neighbors_arg, adata.n_obs - 1)
     results, _ = run_Leiden_partition(
         banksy_dict=banksy_dict,
-        resolutions=[float(args.resolution)],
+        resolutions=[float(resolution)],
         num_nn=cluster_neighbors,
         num_iterations=-1,
-        partition_seed=args.seed,
+        partition_seed=seed,
         match_labels=False,
         annotations=None,
     )
@@ -418,18 +541,210 @@ def run_banksy(adata, args: argparse.Namespace):
     return result_adata, labels, spatial_neighbors, cluster_neighbors, pca_components
 
 
+def natural_cluster_key(label) -> tuple:
+    parts = str(label).split(".")
+    key = []
+    for part in parts:
+        key.append(int(part) if part.isdigit() else part)
+    return tuple(key)
+
+
+def safe_cluster_label(label) -> str:
+    return str(label).replace(".", "_")
+
+
+def dense_values(matrix) -> np.ndarray:
+    if hasattr(matrix, "toarray"):
+        return matrix.toarray()
+    return np.asarray(matrix)
+
+
+def merge_similar_subclusters(sub_adata, sub_labels, min_differential_cell_types: int):
+    if min_differential_cell_types <= 0:
+        return sub_labels, []
+
+    labels = np.asarray([str(label) for label in sub_labels], dtype=object)
+    unique_labels = sorted(pd.unique(labels), key=natural_cluster_key)
+    if len(unique_labels) < 2:
+        return labels, []
+
+    values = dense_values(sub_adata.X)
+    means = {
+        label: values[labels == label].mean(axis=0)
+        for label in unique_labels
+    }
+    roots = {label: label for label in unique_labels}
+
+    def find(label):
+        while roots[label] != label:
+            roots[label] = roots[roots[label]]
+            label = roots[label]
+        return label
+
+    def union(left, right):
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return left_root
+        new_root = min(left_root, right_root, key=natural_cluster_key)
+        old_root = right_root if new_root == left_root else left_root
+        roots[old_root] = new_root
+        return new_root
+
+    merged_pairs = []
+    for left_index, left in enumerate(unique_labels):
+        for right in unique_labels[left_index + 1:]:
+            differential_count = int(
+                np.count_nonzero(
+                    np.abs(means[left] - means[right])
+                    >= CELL_TYPE_DIFFERENCE_THRESHOLD
+                )
+            )
+            if differential_count < min_differential_cell_types:
+                union(left, right)
+                merged_pairs.append(
+                    {
+                        "left": left,
+                        "right": right,
+                        "differential_cell_types": differential_count,
+                    }
+                )
+
+    if not merged_pairs:
+        return labels, []
+
+    merged_labels = np.asarray([find(label) for label in labels], dtype=object)
+    return merged_labels, merged_pairs
+
+
+def subcluster_domains(adata, parent_labels, args: argparse.Namespace):
+    final_labels = np.asarray([str(label) for label in parent_labels], dtype=object)
+    parent_labels = np.asarray([str(label) for label in parent_labels], dtype=object)
+    summary = []
+
+    sub_lambda = (
+        args.lambda_param
+        if args.subcluster_lambda_param is None
+        else args.subcluster_lambda_param
+    )
+    sub_pca_components = (
+        args.pca_components
+        if args.subcluster_pca_components is None
+        else args.subcluster_pca_components
+    )
+
+    for parent in sorted(pd.unique(parent_labels), key=natural_cluster_key):
+        parent_mask = parent_labels == parent
+        parent_size = int(parent_mask.sum())
+        parent_summary = {
+            "parent": parent,
+            "parent_spots": parent_size,
+            "accepted": False,
+            "reason": "",
+            "subcluster_counts": {},
+        }
+        if parent_size < args.subcluster_min_parent_spots:
+            parent_summary["reason"] = "parent_below_min_spots"
+            summary.append(parent_summary)
+            continue
+
+        sub_adata = adata[parent_mask].copy()
+        try:
+            _, sub_labels, sub_spatial_neighbors, sub_cluster_neighbors, sub_pca = (
+                run_banksy_partition(
+                    adata=sub_adata,
+                    lambda_param=sub_lambda,
+                    resolution=args.subcluster_resolution,
+                    spatial_neighbors_arg=args.subcluster_spatial_neighbors,
+                    cluster_neighbors_arg=args.subcluster_cluster_neighbors,
+                    pca_components_arg=sub_pca_components,
+                    max_m=args.max_m,
+                    neighbor_decay=args.neighbor_decay,
+                    seed=args.seed,
+                )
+            )
+        except Exception as error:
+            parent_summary["reason"] = f"subclustering_failed: {error}"
+            summary.append(parent_summary)
+            continue
+
+        sub_labels = np.asarray([str(label) for label in sub_labels], dtype=object)
+        raw_counts = pd.Series(sub_labels).value_counts().sort_index()
+        parent_summary["raw_subcluster_counts"] = {
+            str(label): int(count) for label, count in raw_counts.items()
+        }
+        sub_labels, merged_pairs = merge_similar_subclusters(
+            sub_adata,
+            sub_labels,
+            min_differential_cell_types=args.subcluster_min_differential_cell_types,
+        )
+        counts = pd.Series(sub_labels).value_counts().sort_index()
+        parent_summary["subcluster_counts"] = {
+            str(label): int(count) for label, count in counts.items()
+        }
+        parent_summary["merged_subcluster_pairs"] = merged_pairs
+        parent_summary["min_differential_cell_types"] = (
+            args.subcluster_min_differential_cell_types
+        )
+        parent_summary["cell_type_difference_threshold"] = (
+            CELL_TYPE_DIFFERENCE_THRESHOLD
+        )
+        parent_summary["spatial_neighbors"] = int(sub_spatial_neighbors)
+        parent_summary["cluster_neighbors"] = int(sub_cluster_neighbors)
+        parent_summary["pca_components"] = int(sub_pca)
+
+        if len(counts) < 2:
+            parent_summary["reason"] = "fewer_than_two_subclusters"
+            summary.append(parent_summary)
+            continue
+        if int(counts.min()) < args.subcluster_min_spots:
+            parent_summary["reason"] = "subcluster_below_min_spots"
+            summary.append(parent_summary)
+            continue
+        if float(counts.max() / parent_size) > args.subcluster_max_dominant_fraction:
+            parent_summary["reason"] = "dominant_subcluster_too_large"
+            summary.append(parent_summary)
+            continue
+
+        sub_label_map = {
+            label: index
+            for index, label in enumerate(sorted(counts.index, key=natural_cluster_key))
+        }
+        final_labels[parent_mask] = [
+            f"{parent}.{sub_label_map[label]}" for label in sub_labels
+        ]
+        parent_summary["accepted"] = True
+        parent_summary["reason"] = "accepted"
+        summary.append(parent_summary)
+
+    return final_labels, summary
+
+
 def save_outputs(
     adata,
     source_table,
     feature_columns: list[str],
-    labels,
+    parent_labels,
+    final_labels,
     args: argparse.Namespace,
     spatial_neighbors: int,
     cluster_neighbors: int,
     pca_components: int,
+    subcluster_summary: list[dict] | None = None,
 ) -> None:
+    parent_labels = np.asarray([str(label) for label in parent_labels], dtype=object)
+    final_labels = np.asarray([str(label) for label in final_labels], dtype=object)
     clusters = source_table.copy()
-    clusters["banksy_cluster"] = labels
+    clusters["banksy_cluster"] = parent_labels
+    if args.subcluster:
+        clusters["banksy_subcluster"] = final_labels
+    adata.obs["banksy_cluster"] = parent_labels
+    adata.obs["banksy_cluster"] = adata.obs["banksy_cluster"].astype("category")
+    if args.subcluster:
+        adata.obs["banksy_subcluster"] = final_labels
+        adata.obs["banksy_subcluster"] = adata.obs["banksy_subcluster"].astype(
+            "category"
+        )
     clusters.to_csv(args.output_dir / "banksy_clusters.csv", index=False)
     adata.write_h5ad(args.output_dir / "banksy_result.h5ad")
 
@@ -437,7 +752,7 @@ def save_outputs(
         {
             "x": adata.obs["x"].to_numpy(),
             "y": adata.obs["y"].to_numpy(),
-            "cluster": labels,
+            "cluster": final_labels,
         }
     )
     coordinates = plot_table[["x", "y"]].to_numpy(dtype=float)
@@ -466,7 +781,7 @@ def save_outputs(
         rotate=args.rotate,
     )
 
-    cluster_ids = sorted(pd.unique(plot_table["cluster"]), key=int)
+    cluster_ids = sorted(pd.unique(plot_table["cluster"]), key=natural_cluster_key)
     cmap = plt.get_cmap("tab20", len(cluster_ids))
     cluster_colors = {
         cluster_id: np.rint(np.asarray(cmap(index)) * 255).astype(np.uint8)
@@ -478,7 +793,11 @@ def save_outputs(
     }
     point_colors = plot_table["cluster"].map(legend_colors)
 
-    figure_size, width_ratios = spatial_figure_layout(plot_x_spots, plot_y_spots)
+    figure_size, width_ratios, legend_options = spatial_figure_layout(
+        plot_x_spots,
+        plot_y_spots,
+        cluster_count=len(cluster_ids),
+    )
     figure, (axis, legend_axis) = plt.subplots(
         ncols=2,
         figsize=figure_size,
@@ -512,17 +831,19 @@ def save_outputs(
         title="cluster",
         loc="upper left",
         frameon=False,
-        fontsize=8,
-        title_fontsize=9,
+        fontsize=legend_options["fontsize"],
+        title_fontsize=legend_options["title_fontsize"],
+        ncols=legend_options["ncols"],
         borderaxespad=0,
         handletextpad=0.45,
-        labelspacing=0.55,
+        columnspacing=0.8,
+        labelspacing=0.45,
         handlelength=1.15,
         handleheight=1.15,
         bbox_to_anchor=(0.0, 1.01),
     )
     figure.subplots_adjust(left=0.028, right=0.998, top=0.92, bottom=0.04, wspace=0.0)
-    figure.savefig(args.output_dir / "banksy_clusters.png", dpi=300)
+    figure.savefig(args.output_dir / "banksy_clusters.png", dpi=300, bbox_inches="tight")
     plt.close(figure)
 
     grid_dir = args.output_dir / "cluster_grids"
@@ -544,7 +865,7 @@ def save_outputs(
             length_spot=args.length_spot,
             interval=args.interval,
             pixel_length=args.pixel_length,
-        ).save(grid_dir / f"cluster_{int(cluster_id):03d}.png")
+        ).save(grid_dir / f"cluster_{safe_cluster_label(cluster_id)}.png")
 
     parameters = {
         "weights_file": str(args.weights_file.resolve()),
@@ -566,7 +887,31 @@ def save_outputs(
         "orientation": args.orientation,
         "swap_xy": args.swap_xy,
         "rotate": args.rotate,
+        "subcluster": args.subcluster,
     }
+    if args.subcluster:
+        parameters["subcluster_parameters"] = {
+            "min_parent_spots": args.subcluster_min_parent_spots,
+            "min_spots": args.subcluster_min_spots,
+            "max_depth": args.subcluster_max_depth,
+            "lambda_param": (
+                args.lambda_param
+                if args.subcluster_lambda_param is None
+                else args.subcluster_lambda_param
+            ),
+            "resolution": args.subcluster_resolution,
+            "spatial_neighbors": args.subcluster_spatial_neighbors,
+            "cluster_neighbors": args.subcluster_cluster_neighbors,
+            "pca_components": (
+                args.pca_components
+                if args.subcluster_pca_components is None
+                else args.subcluster_pca_components
+            ),
+            "max_dominant_fraction": args.subcluster_max_dominant_fraction,
+            "min_differential_cell_types": args.subcluster_min_differential_cell_types,
+            "cell_type_difference_threshold": CELL_TYPE_DIFFERENCE_THRESHOLD,
+        }
+        parameters["subcluster_summary"] = subcluster_summary or []
     with (args.output_dir / "run_parameters.json").open("w", encoding="utf-8") as handle:
         json.dump(parameters, handle, indent=2, ensure_ascii=False)
         handle.write("\n")
@@ -579,15 +924,21 @@ def main() -> None:
         args.weights_file, normalize=not args.no_normalize_weights
     )
     result = run_banksy(adata, args)
+    final_labels = np.asarray([str(label) for label in result[1]], dtype=object)
+    subcluster_summary = []
+    if args.subcluster:
+        final_labels, subcluster_summary = subcluster_domains(adata, result[1], args)
     save_outputs(
         result[0],
         source_table,
         feature_columns,
         result[1],
+        final_labels,
         args,
         result[2],
         result[3],
         result[4],
+        subcluster_summary,
     )
     print(f"BANKSY clustering completed: {args.output_dir}")
 

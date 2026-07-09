@@ -9,7 +9,15 @@ QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
 LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
 DOMAIN_SCRIPT_DIR="$SCRIPT_DIR/Domain_Analysis"
 PROGRAM_NAME=$(basename "$0")
+CHIP_FILE="$REPO_DIR/config/chip.sh"
 export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR DOMAIN_SCRIPT_DIR
+
+if [[ ! -f "$CHIP_FILE" ]]; then
+    echo "Error: chip preset file not found: $CHIP_FILE" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$CHIP_FILE"
 
 show_help() {
     cat <<EOF
@@ -34,7 +42,7 @@ Usage: $PROGRAM_NAME mrna [--config <file>] [options]
 Optional:
   --config <file>        Configuration file (default: ./config.sh)
   --input <path>         Transcriptome FASTQ directory; required only before stored
-  --chip <name>          50-50, 50-20, or 100-20; required only before stored
+  --chip <name>          $(chip_preset_names_csv); required only before stored
   --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
   --gene-min <int>       Non-negative minimum gene count per spot (default: 300)
   --min-cell <int>       Positive minimum cells per gene (default: 3)
@@ -48,7 +56,7 @@ Usage: $PROGRAM_NAME amplicon [--config <file>] [options]
 Optional:
   --config <file>                                 Configuration file (default: ./config.sh)
   --input <path>                                  Amplicon FASTQ directory; required only before stored
-  --chip <name>                                   50-50, 50-20, or 100-20; required only before stored
+  --chip <name>                                   $(chip_preset_names_csv); required only before stored
   --initial-reads-cutoff <int>                    Non-negative reads cutoff for initial filtering (default: 100)
   --major-fraction-threshold-molecule <float>     Major-molecule reads fraction from 0 to 1 (default: 0.8)
   --reads-fraction-mode <sum|max>                 Mode for calculating reads fraction (default: sum)
@@ -99,9 +107,7 @@ show_domain_help() {
 Usage: $PROGRAM_NAME domain [--config <file>] [options]
 
 Optional:
-  --config <file>       Configuration file (default: ./config.sh)
-  --lambda <float>       BANKSY spatial contribution from 0 to 1 (default: 0.8)
-  --resolution <float>   Positive BANKSY Leiden resolution (default: 1.0)
+  --config <file>        Configuration file (default: ./config.sh)
   --rotate <degrees>     Clockwise grid rotation for display: 0, 90, 180, or 270
 EOF
 }
@@ -154,8 +160,6 @@ cli_swap_xy=""
 cli_clone_labels=""
 cli_top_n=""
 cli_rotate=""
-cli_domain_resolution=""
-cli_domain_lambda=""
 
 require_option_value() {
     if [[ $# -lt 2 || $2 == --* ]]; then
@@ -190,8 +194,6 @@ while [[ $# -gt 0 ]]; do
         --slope-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
         --orientation) require_step_option "$1" image; require_option_value "$@"; cli_orientation=$2; shift 2 ;;
         --swap-xy) require_step_option "$1" image; require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
-        --lambda) require_step_option "$1" domain; require_option_value "$@"; cli_domain_lambda=$2; shift 2 ;;
-        --resolution) require_step_option "$1" domain; require_option_value "$@"; cli_domain_resolution=$2; shift 2 ;;
         --labels) require_step_option "$1" clone; require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
         --top-n) require_step_option "$1" clone; require_option_value "$@"; cli_top_n=$2; shift 2 ;;
         --rotate) require_step_option "$1" domain clone; require_option_value "$@"; cli_rotate=$2; shift 2 ;;
@@ -261,8 +263,6 @@ validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_thres
 validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
 validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
 validate_positive_integer --top-n "$cli_top_n"
-validate_positive_number --resolution "$cli_domain_resolution"
-validate_fraction --lambda "$cli_domain_lambda"
 if [[ -n "$cli_rotate" ]]; then
     case "$cli_rotate" in
         0|90|180|270) ;;
@@ -304,14 +304,11 @@ set_config_value() {
 }
 
 if ! $chip_from_cli; then selected_chip=${chip:-}; fi
-case "$selected_chip" in
-    50-50|50-20|100-20|"") ;;
-    *)
-        echo "Error: unsupported chip '$selected_chip'." >&2
-        echo "Valid chips: 50-50, 50-20, 100-20." >&2
-        exit 1
-        ;;
-esac
+if [[ -n "$selected_chip" ]] && ! chip_preset_is_supported "$selected_chip"; then
+    echo "Error: unsupported chip '$selected_chip'." >&2
+    echo "Valid chips: $(chip_preset_names_csv)." >&2
+    exit 1
+fi
 
 stored_input=""
 case "$step" in
@@ -409,8 +406,6 @@ case "$step" in
         [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
         ;;
     domain)
-        [[ -n "$cli_domain_lambda" ]] && set_config_value banksy_lambda "$cli_domain_lambda"
-        [[ -n "$cli_domain_resolution" ]] && set_config_value banksy_resolution "$cli_domain_resolution"
         [[ -n "$cli_rotate" ]] && set_config_value rotate "$cli_rotate"
         ;;
     clone)
@@ -426,24 +421,13 @@ fi
 
 source "$config_abs"
 
-# Chip presets are intentionally defined only in this submission script.
-case "$selected_chip" in
-    50-50)
-        chip=50-50; x_spots_number=50; y_spots_number=50
-        length_spot=50; interval=50
-        whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
-        ;;
-    50-20)
-        chip=50-20; x_spots_number=50; y_spots_number=50
-        length_spot=20; interval=20
-        whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
-        ;;
-    100-20)
-        chip=100-20; x_spots_number=100; y_spots_number=100
-        length_spot=20; interval=20
-        whitelist_path="$REPO_DIR/docs/barcodes/barcodes100.tsv"
-        ;;
-esac
+if [[ -n "$selected_chip" ]]; then
+    apply_chip_preset "$selected_chip" || {
+        echo "Error: unsupported chip '$selected_chip'." >&2
+        echo "Valid chips: $(chip_preset_names_csv)." >&2
+        exit 1
+    }
+fi
 export chip x_spots_number y_spots_number length_spot interval whitelist_path
 
 case "$step" in

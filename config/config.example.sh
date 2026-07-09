@@ -62,13 +62,6 @@ rctd_cores=8
 rctd_mode=full
 rctd_ref_min_umi=100
 rctd_spa_min_umi=100
-banksy_lambda=0.8
-banksy_resolution=1.0
-banksy_spatial_neighbors=30
-banksy_cluster_neighbors=50
-banksy_pca_components=20
-banksy_max_m=1
-banksy_neighbor_decay=scaled_gaussian    # scaled_gaussian or reciprocal
 
 # SLURM resources (used when execution_mode=hpc)
 sbatch_job_name_prefix=dbit

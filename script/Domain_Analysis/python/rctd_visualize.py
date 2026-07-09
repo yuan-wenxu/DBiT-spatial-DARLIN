@@ -7,6 +7,7 @@ import argparse
 import math
 import os
 import re
+import textwrap
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
@@ -26,6 +27,9 @@ import pandas as pd
 BASE_GRID_SPOTS = 50
 BASE_PLOT_SIZE = 4.37
 LEGEND_COLUMN_WIDTH = 1.8
+LEGEND_LABEL_WRAP_WIDTH = 32
+LEGEND_LABEL_INCHES_PER_CHAR = 0.055
+LEGEND_LABEL_EXTRA_WIDTH = 0.75
 COLORBAR_WIDTH = 0.45
 COLORBAR_GAP = 0.55
 VERTICAL_MARGIN = 0.73
@@ -229,6 +233,30 @@ def categorical_colors(cell_types: list[str]) -> dict[str, str]:
     }
 
 
+def wrap_legend_label(label: str) -> str:
+    return textwrap.fill(
+        label,
+        width=LEGEND_LABEL_WRAP_WIDTH,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def legend_column_width(labels: list[str]) -> float:
+    if not labels:
+        return LEGEND_COLUMN_WIDTH
+    wrapped_line_lengths = [
+        len(line)
+        for label in labels
+        for line in wrap_legend_label(label).splitlines()
+    ]
+    longest_line = max(wrapped_line_lengths, default=0)
+    return max(
+        LEGEND_COLUMN_WIDTH,
+        longest_line * LEGEND_LABEL_INCHES_PER_CHAR + LEGEND_LABEL_EXTRA_WIDTH,
+    )
+
+
 def save_dominant_plot(
     frame: pd.DataFrame,
     cell_types: list[str],
@@ -253,7 +281,7 @@ def save_dominant_plot(
         *([OTHER_CELL_TYPE] if has_other else []),
     ]
     legend_columns = max(1, math.ceil(len(displayed_types) / 25))
-    legend_width = LEGEND_COLUMN_WIDTH * legend_columns
+    legend_width = legend_column_width(displayed_types) * legend_columns
     figure_size, width_ratios = figure_layout(x_spots, y_spots, legend_width)
     figure, (axis, legend_axis) = plt.subplots(
         ncols=2,
@@ -284,7 +312,7 @@ def save_dominant_plot(
     legend_axis.axis("off")
     legend_axis.legend(
         handles=[
-            Patch(facecolor=color_map[cell_type], label=cell_type)
+            Patch(facecolor=color_map[cell_type], label=wrap_legend_label(cell_type))
             for cell_type in displayed_types
         ],
         title="cell type",

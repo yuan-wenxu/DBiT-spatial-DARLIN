@@ -31,6 +31,10 @@ Use `pixi` for environment management.
 - Keep changes scoped to the requested pipeline behavior.
 - Preserve the shell-script entry points and existing directory layout.
 - Prefer `rg` for searching files and text.
+- Windows drive paths provided by the user can be converted directly to WSL
+  mount paths, for example `E:\data\file.h5ad` -> `/mnt/e/data/file.h5ad`.
+  Use the converted path directly; do not search under `/mnt` to locate files
+  when the user has already provided a path.
 - Before editing, check `git status --short`; this repository may already contain user changes.
 - Do not revert user changes or unrelated modified files.
 

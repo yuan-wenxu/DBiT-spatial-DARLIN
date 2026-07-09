@@ -175,7 +175,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--orientation",
         choices=("normal", "horizontal", "vertical", "rotate"),
-        default="normal",
         help="Grid origin orientation: normal, horizontal, vertical, or rotate.",
     )
     parser.add_argument(

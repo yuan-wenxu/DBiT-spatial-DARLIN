@@ -36,7 +36,8 @@ sample_name/
 The amplicon filenames must contain `CA`, `RA`, or `TA` so the locus can be
 identified. Clone analysis also requires an allele-bank directory containing
 one `.csv`, `.csv.gz`, `.tsv`, or `.tsv.gz` file per locus. Each bank filename
-must contain the corresponding uppercase `CA`, `RA`, or `TA` label.
+must contain the corresponding uppercase `CA`, `RA`, or `TA` label. The mRNA
+FASTQ directory must contain exactly one paired sample.
 
 `align.png` is the cropped registered image produced by manually aligning the
 tissue image with the spatial transcriptome result. It is used as the input to
@@ -82,7 +83,7 @@ Run `dbit` from the dataset directory. By default it loads `./config.sh`; use
 The recommended order is:
 
 ```text
-mrna → image → amplicon → filter → domain → clone
+mrna → saturation → image → amplicon → filter → domain → clone
 ```
 
 ### mRNA QC
@@ -95,6 +96,15 @@ cd /path/to/sample_name
 dbit mrna \
     --input ./transcriptome/fastq \
     --chip 50-20
+```
+
+### Saturation analysis
+
+Downsample the mRNA FASTQs and run the complete mRNA workflow independently
+for every fraction.
+
+```bash
+dbit saturation
 ```
 
 ### Image QC
@@ -160,6 +170,7 @@ listed by the command-line help:
 ```bash
 dbit -h
 dbit mrna -h
+dbit saturation -h
 dbit image -h
 dbit amplicon -h
 dbit filter -h
@@ -176,11 +187,21 @@ sample_name/
 ├── config.sh
 ├── transcriptome/
 │   ├── fastq/
+│   ├── saturation/
+│   │   ├── 0.01/
+│   │   │   ├── config.sh
+│   │   │   ├── fastq/
+│   │   │   ├── fastq_umi_barcode/
+│   │   │   └── results/
+│   │   ├── 0.02/
+│   │   ├── ...
+│   │   ├── saturation_curve.png
+│   │   ├── saturation_metrics.csv
+│   │   └── saturation_fit.csv
 │   ├── fastq_umi_barcode/
 │   └── results/
 │       ├── deconv/
-│       └── <sample>/
-│           └── Solo.out/
+│       └── Solo.out/
 ├── image/
 │   ├── filtered_results.csv
 │   ├── tissue_mask.png
@@ -189,14 +210,13 @@ sample_name/
     ├── fastq/
     ├── fastq_umi_barcode/
     └── results/
-        └── <sample>/
-            ├── CA/
-            │   ├── final.csv
-            │   ├── tissuefiltered.csv
-            │   ├── tissuefiltered.bank_filtered.csv
-            │   └── top_lr_plots/
-            ├── RA/
-            └── TA/
+        ├── CA/
+        │   ├── final.csv
+        │   ├── tissuefiltered.csv
+        │   ├── tissuefiltered.bank_filtered.csv
+        │   └── top_lr_plots/
+        ├── RA/
+        └── TA/
 ```
 
 The dataset config is updated with the resolved input and result paths so later

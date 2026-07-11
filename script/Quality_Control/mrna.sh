@@ -78,11 +78,7 @@ compress_fastq_file() {
     local fq="$1"
     local threads="$2"
     local level="$3"
-    if command -v pigz >/dev/null 2>&1; then
-        pigz -f -p "$threads" "-$level" "$fq"
-    else
-        gzip -f "-$level" "$fq"
-    fi
+    run_pixi pigz -f -p "$threads" "-$level" "$fq"
 }
 
 star_outputs_complete() {
@@ -133,7 +129,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     r2_orig="$fastq_path/${sample_name}_R2.fq.gz"
 
     log_file="$orig_output_path/${sample_name}_preprocess.log"
-    final_results="$orig_output_path/results/$sample_name"
+    final_results="$orig_output_path/results"
 
     gzip_after_enabled=false
     if [[ "${gzip_after_preprocess,,}" =~ ^(true|yes|1)$ ]]; then
@@ -229,8 +225,9 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         echo "Step2 STAR already done for $sample_name, skipping..."
     else
         if [[ -d "$final_results" ]]; then
-            echo "Removing incomplete STAR outputs for $sample_name: $final_results"
-            rm -rf -- "$final_results" || {
+            echo "Removing incomplete STAR outputs for $sample_name while preserving deconv: $final_results"
+            find "$final_results" -mindepth 1 -maxdepth 1 ! -name deconv \
+                -exec rm -rf -- {} + || {
                 echo "Error: failed to remove incomplete STAR outputs: $final_results" >&2
                 exit 1
             }
@@ -240,10 +237,10 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             mkdir -p "$scratch_input" "$scratch_output"
             cp "$pre_r1" "$pre_r2" "$scratch_input/"
             star_input="$scratch_input"
-            star_results="$scratch_output/results/$sample_name"
+            star_results="$scratch_output/results"
         else
             star_input="$tmp_path"
-            star_results="$orig_output_path/results/$sample_name"
+            star_results="$orig_output_path/results"
         fi
 
         if $use_scratch && [[ -d "$star_results" ]]; then
@@ -291,8 +288,8 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
 
         # Step3 is local only, so copy step2 results back first when using scratch.
         if $use_scratch; then
-            mkdir -p "$orig_output_path/results/$sample_name"
-            cp -r "$star_results"/* "$orig_output_path/results/$sample_name"/ || {
+            mkdir -p "$orig_output_path/results"
+            cp -r "$star_results"/* "$orig_output_path/results"/ || {
                 echo "Error: failed to copy STAR results from scratch for $sample_name" >&2
                 exit 1
             }

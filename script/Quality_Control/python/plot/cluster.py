@@ -24,6 +24,30 @@ class PlotConfig:
 
 def sct_normalize_and_pca(adata, n_top_genes=3000, n_comps=50, theta=100):
     n_top_genes = min(n_top_genes, adata.n_vars)
+
+    # Low-depth spots can have counts only in genes excluded by HVG selection.
+    # Remove those zero-sum HVG rows before Pearson residual normalization,
+    # which would otherwise produce NaN values from 0/0.
+    while True:
+        sc.experimental.pp.highly_variable_genes(
+            adata,
+            flavor="pearson_residuals",
+            n_top_genes=n_top_genes,
+            theta=theta,
+            inplace=True,
+        )
+        hvg_mask = adata.var["highly_variable"].to_numpy()
+        hvg_totals = np.asarray(adata[:, hvg_mask].X.sum(axis=1)).ravel()
+        keep_spots = hvg_totals > 0
+        removed_spots = int((~keep_spots).sum())
+        if removed_spots == 0:
+            break
+        print(
+            f"Removing {removed_spots} spots with zero counts across "
+            "selected highly variable genes."
+        )
+        adata._inplace_subset_obs(keep_spots)
+
     n_comps = min(n_comps, adata.n_obs - 1, adata.n_vars - 1)
     if n_comps < 1:
         raise ValueError("Not enough observations or genes for PCA.")

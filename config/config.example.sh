@@ -27,6 +27,9 @@ soloCBlen=16
 soloUMIstart=17
 soloUMIlen=10
 
+# Saturation analysis
+saturation_fractions=0.01,0.02,0.05,0.1,0.2,0.5
+
 # Amplicon
 amp_cores=10
 base_quality=10

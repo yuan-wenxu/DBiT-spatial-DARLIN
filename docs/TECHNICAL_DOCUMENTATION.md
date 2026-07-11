@@ -4,9 +4,10 @@ This document describes the implementation details of the DBiT-spatial-DARLIN pr
 
 ## 1. Pipeline Scope
 
-The pipeline contains five user-facing steps:
+The pipeline contains these user-facing steps:
 
 - `mrna`: preprocess transcriptome FASTQs, run STARsolo, and perform spatial QC.
+- `saturation`: downsample transcriptome FASTQs and run mRNA QC at each fraction.
 - `image`: split the registered image and count cells with StarDist.
 - `amplicon`: process DARLIN amplicon FASTQs and generate clone-call tables.
 - `filter`: apply tissue filtering and merge spatial plots with the image.
@@ -17,6 +18,7 @@ The corresponding shell entry points are:
 ```text
 script/dbit.sh
 script/Quality_Control/mrna.sh
+script/Saturation/saturation.sh
 script/Quality_Control/image.sh
 script/Quality_Control/amplicon.sh
 script/Quality_Control/filter.sh
@@ -118,8 +120,11 @@ The default barcode and UMI positions match the preprocessing FASTQ layout:
 STAR outputs are written under:
 
 ```text
-<output_path>/results/<sample_name>/Solo.out/GeneFull/
+<output_path>/results/Solo.out/GeneFull/
 ```
+
+When incomplete STAR outputs are cleaned before a rerun, `results/deconv/` is
+preserved and only the other top-level contents of `results/` are removed.
 
 ### 3.3 mRNA QC and Clustering
 
@@ -145,6 +150,10 @@ The clustering workflow:
 6. Build an SNN graph from PCA coordinates.
 7. Run UMAP and Leiden clustering.
 8. Write spatial cluster plots and tabular outputs.
+
+Before Pearson-residual normalization, spots whose total count is zero across
+the selected highly variable genes are removed. This prevents low-depth
+fractions from producing NaN residuals and causing PCA to fail.
 
 Key defaults:
 
@@ -187,6 +196,23 @@ Pearson-residual-normalized highly-variable-gene matrix under
 `uns['pearson_residuals_normalization']['pearson_residuals_df']`.
 
 `data_tissuefiltered.csv` is produced later by `filter.sh` after applying the image-derived tissue mask to mRNA spot data.
+
+### 3.4 Saturation analysis
+
+`dbit saturation` reuses `mrna_fastq_path` stored by the mRNA step. The single
+`script/Saturation/saturation.sh` worker uses `seqtk sample` with the same seed
+for both reads of every FASTQ pair, then invokes the complete mRNA worker once
+for each fraction. Outputs follow this layout:
+
+```text
+<mRNA FASTQ parent>/saturation/<fraction>/
+├── fastq/
+│   ├── <sample>_<fraction>_R1.fq.gz
+│   └── <sample>_<fraction>_R2.fq.gz
+├── fastq_umi_barcode/
+└── results/Solo.out/GeneFull/
+```
+
 
 ## 4. Image Workflow
 
@@ -313,7 +339,7 @@ Important columns:
 Important outputs per locus:
 
 ```text
-amplicon/results/<sample_name>/<CA|RA|TA>/
+amplicon/results/<CA|RA|TA>/
 ├── final.csv
 ├── dbit.log
 ├── Reads_counts_heatmap.png
@@ -544,8 +570,8 @@ Clone-analysis output layout:
 2. Inspect STAR logs when mRNA matrices are missing:
 
    ```text
-   results/<sample_name>/STAR.log
-   results/<sample_name>/Solo.out/qc.log
+   results/STAR.log
+   results/Solo.out/qc.log
    ```
 
 3. Inspect image registration before trusting tissue-filtered plots:
@@ -558,9 +584,9 @@ Clone-analysis output layout:
 4. Inspect amplicon correction summaries and QC plots:
 
    ```text
-   amplicon/results/<sample>/<label>/dbit.log
-   amplicon/results/<sample>/<label>/reads_fraction_qc.png
-   amplicon/results/<sample>/<label>/sr_reads_vs_umis.png
+   amplicon/results/<label>/dbit.log
+   amplicon/results/<label>/reads_fraction_qc.png
+   amplicon/results/<label>/sr_reads_vs_umis.png
    ```
 
 5. Inspect clone-analysis intermediate files before interpreting top LR plots:

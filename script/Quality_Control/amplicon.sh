@@ -78,11 +78,7 @@ compress_fastq_file() {
     local fq="$1"
     local threads="$2"
     local level="$3"
-    if command -v pigz >/dev/null 2>&1; then
-        pigz -f -p "$threads" "-$level" "$fq"
-    else
-        gzip -f "-$level" "$fq"
-    fi
+    run_pixi pigz -f -p "$threads" "-$level" "$fq"
 }
 
 # Validate inputs
@@ -138,7 +134,6 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
     locus=$(echo "$sample_name" | grep -oE 'CA|RA|TA')
     r2=$file_path/$sample_name"_R2.fq.gz"
-    nonlocus_sample_name=$(echo "$sample_name" | sed 's/\(-CA\|-RA\|-TA\|_CA\|_RA\|_TA\)//')
 
     # Cutadapt and extract UMI and barcode
     gzip_after_enabled=false
@@ -177,7 +172,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         compress_fastq_file "$tmp_path/${sample_name}_bc_match_R2.fq" "$cores" "$compression_level" || exit 1
     fi
 
-    results=$output_path/results/$nonlocus_sample_name/$locus
+    results="$output_path/results/$locus"
     mkdir -p "$results"
 
     run_pixi python "$PYTHON_DIR/amplicon.py" \

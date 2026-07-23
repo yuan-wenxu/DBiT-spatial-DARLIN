@@ -25,6 +25,7 @@ show_help() {
 Usage: $PROGRAM_NAME <step> [options]
 
 Steps:
+  init          Initialize or display configuration in the current directory
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
   saturation    Downsample mRNA FASTQs and run mRNA QC at each fraction
   amplicon      Process DARLIN amplicon FASTQs
@@ -37,12 +38,21 @@ Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
 EOF
 }
 
+show_init_help() {
+    cat <<EOF
+Usage: $PROGRAM_NAME init
+
+Initialize dbit.config.sh in the current directory.
+If dbit.config.sh already exists, display its contents instead.
+EOF
+}
+
 show_mrna_help() {
     cat <<EOF
 Usage: $PROGRAM_NAME mrna [--config <file>] [options]
 
 Optional:
-  --config <file>        Configuration file (default: ./config.sh)
+  --config <file>        Configuration file (default: ./dbit.config.sh)
   --input <path>         Transcriptome FASTQ directory; required only before stored
   --chip <name>          $(chip_preset_names_csv); required only before stored
   --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
@@ -56,7 +66,7 @@ show_amplicon_help() {
 Usage: $PROGRAM_NAME amplicon [--config <file>] [options]
 
 Optional:
-  --config <file>                                 Configuration file (default: ./config.sh)
+  --config <file>                                 Configuration file (default: ./dbit.config.sh)
   --input <path>                                  Amplicon FASTQ directory; required only before stored
   --chip <name>                                   $(chip_preset_names_csv); required only before stored
   --initial-reads-cutoff <int>                    Non-negative reads cutoff for initial filtering (default: 100)
@@ -75,7 +85,7 @@ The input is read from mrna_fastq_path stored by the mrna step. Downsampled
 FASTQs and mRNA results are written below <mRNA FASTQ parent>/saturation/.
 
 Optional:
-  --config <file>       Configuration file (default: ./config.sh)
+  --config <file>       Configuration file (default: ./dbit.config.sh)
   --fractions <list>    Comma-separated fractions (default: 0.01,0.02,0.05,0.1,0.2,0.5)
 EOF
 }
@@ -85,7 +95,7 @@ show_image_help() {
 Usage: $PROGRAM_NAME image [--config <file>] [options]
 
 Optional:
-  --config <file>         Configuration file (default: ./config.sh)
+  --config <file>         Configuration file (default: ./dbit.config.sh)
   --input <path>          Registered input image; required only before stored
   --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
   --swap-xy <bool>        True or False (case-insensitive); required only before stored
@@ -101,7 +111,7 @@ show_filter_help() {
 Usage: $PROGRAM_NAME filter [--config <file>]
 
 Optional:
-  --config <file>   Configuration file (default: ./config.sh)
+  --config <file>   Configuration file (default: ./dbit.config.sh)
 EOF
 }
 
@@ -110,7 +120,7 @@ show_clone_help() {
 Usage: $PROGRAM_NAME clone [--config <file>] [options]
 
 Optional:
-  --config <file>      Configuration file (default: ./config.sh)
+  --config <file>      Configuration file (default: ./dbit.config.sh)
   --labels <list>      Comma-separated labels (default: CA,RA,TA)
   --top-n <int>        Positive number of LR plots per label (default: 10)
   --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270
@@ -122,13 +132,14 @@ show_domain_help() {
 Usage: $PROGRAM_NAME domain [--config <file>] [options]
 
 Optional:
-  --config <file>        Configuration file (default: ./config.sh)
+  --config <file>        Configuration file (default: ./dbit.config.sh)
   --rotate <degrees>     Clockwise grid rotation for display: 0, 90, 180, or 270
 EOF
 }
 
 show_step_help() {
     case "$1" in
+        init) show_init_help ;;
         mrna) show_mrna_help ;;
         saturation) show_saturation_help ;;
         amplicon) show_amplicon_help ;;
@@ -144,19 +155,47 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        mrna|saturation|amplicon|image|filter|domain|clone) show_step_help "$step"; exit 0 ;;
+        init|mrna|saturation|amplicon|image|filter|domain|clone) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    mrna|saturation|amplicon|image|filter|domain|clone) ;;
+    init|mrna|saturation|amplicon|image|filter|domain|clone) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: mrna, saturation, amplicon, image, filter, domain, clone." >&2
+        echo "Valid steps: init, mrna, saturation, amplicon, image, filter, domain, clone." >&2
         exit 1
         ;;
 esac
+
+require_option_value() {
+    if [[ $# -lt 2 || $2 == --* ]]; then
+        echo "Error: option '$1' requires a value." >&2
+        exit 1
+    fi
+}
+
+# Handle init step early (no config required)
+if [[ "$step" == "init" ]]; then
+    [[ ${2:-} == -h || ${2:-} == --help ]] && { show_init_help; exit 0; }
+
+    init_config_file="$START_DIR/dbit.config.sh"
+
+    if [[ -f "$init_config_file" ]]; then
+        echo "Config file already exists: $(realpath "$init_config_file")"
+        echo "---"
+        cat "$init_config_file"
+    else
+        if [[ -f "$REPO_DIR/config/dbit.config.sh" ]]; then
+            cp "$REPO_DIR/config/dbit.config.sh" "$init_config_file"
+        else
+            cp "$REPO_DIR/config/dbit.config.example.sh" "$init_config_file"
+        fi
+        echo "Created config file: $(realpath "$init_config_file")"
+    fi
+    exit 0
+fi
 
 input_path=""
 input_from_cli=false
@@ -177,13 +216,6 @@ cli_clone_labels=""
 cli_top_n=""
 cli_rotate=""
 cli_saturation_fractions=""
-
-require_option_value() {
-    if [[ $# -lt 2 || $2 == --* ]]; then
-        echo "Error: option '$1' requires a value." >&2
-        exit 1
-    fi
-}
 
 require_step_option() {
     local option=$1
@@ -316,11 +348,11 @@ if [[ -n "$cli_reads_fraction_mode" ]]; then
 fi
 
 if [[ -z "$config_file" ]]; then
-    config_file="$START_DIR/config.sh"
+    config_file="$START_DIR/dbit.config.sh"
 fi
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2
-    echo "Run dbit from a dataset directory containing config.sh, or pass --config <file>." >&2
+    echo "Run 'dbit init' to create dbit.config.sh, or pass --config <file>." >&2
     exit 1
 fi
 config_abs=$(realpath "$config_file")

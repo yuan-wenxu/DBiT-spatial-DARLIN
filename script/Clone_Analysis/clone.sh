@@ -11,7 +11,7 @@ Arguments:
   config_file   Per-dataset configuration file
 
 Examples:
-  $0 config.sh
+  $0 dbit.config.sh
 EOF
 }
 

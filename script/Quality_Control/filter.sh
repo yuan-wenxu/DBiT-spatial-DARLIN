@@ -12,7 +12,7 @@ Arguments:
 
 
 Examples:
-  $0 config.sh
+  $0 dbit.config.sh
 EOF
 }
 

@@ -24,7 +24,7 @@ orientation arguments.
 For example:
 
 ```bash
-bash dbit.sh image --input /path/to/align.png --config /path/to/config.sh \
+bash dbit.sh image --input /path/to/align.png --config /path/to/dbit.config.sh \
     --orientation horizontal --swap-xy False
 ```
 
@@ -42,7 +42,7 @@ steps.
 Clone analysis also provides a separate presentation option:
 
 ```bash
-dbit clone --config /path/to/config.sh --rotate 90
+dbit clone --config /path/to/dbit.config.sh --rotate 90
 ```
 
 `--rotate` accepts `0`, `90`, `180`, or `270` degrees clockwise. This option

@@ -15,7 +15,7 @@ Organize each dataset as follows:
 
 ```text
 sample_name/
-├── config.sh
+├── dbit.config.sh
 ├── transcriptome/
 │   └── fastq/
 │       ├── <sample>_R1.fq.gz
@@ -63,11 +63,19 @@ pixi run init
 source ~/.bashrc
 ```
 
-Copy the configuration template for each dataset:
+Initialize the configuration for each dataset:
 
 ```bash
-cp /path/to/DBiT-spatial-DARLIN/config/config.example.sh /path/to/sample_name/config.sh
+cd /path/to/sample_name
+dbit init
 ```
+
+This copies a configuration file to the current directory as `dbit.config.sh`.
+The repository provides two templates in `config/`:
+
+- `dbit.config.sh` — pre-filled configuration with common default values (used
+  by `dbit init` when available)
+- `dbit.config.example.sh` — blank template with all fields commented out
 
 Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
 mode, and SLURM resources where applicable. Domain analysis additionally
@@ -75,8 +83,8 @@ requires `rctd_reference_dir`; adjust the RCTD reference column settings to
 match the reference atlas. Use `execution_mode=local` for a local run or
 `execution_mode=hpc` for SLURM submission.
 
-Run `dbit` from the dataset directory. By default it loads `./config.sh`; use
-`--config <file>` only when the configuration is stored elsewhere.
+Run `dbit` from the dataset directory. By default it loads `./dbit.config.sh`;
+use `--config <file>` only when the configuration is stored elsewhere.
 
 ## Usage
 
@@ -184,7 +192,7 @@ After completing the workflow, the main outputs are organized as follows:
 
 ```text
 sample_name/
-├── config.sh
+├── dbit.config.sh
 ├── transcriptome/
 │   ├── fastq/
 │   ├── saturation/

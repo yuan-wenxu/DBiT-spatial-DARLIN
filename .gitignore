@@ -186,4 +186,4 @@ cython_debug/
 !.pixi/config.toml
 
 # Local DBiT configuration
-/config/config.sh
+/config/dbit.config.sh

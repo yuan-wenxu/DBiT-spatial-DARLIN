@@ -156,6 +156,12 @@ if [[ -n ${scratch:-} ]]; then
     use_scratch=true
 fi
 
+if $use_scratch; then
+    run_spatial_h5ad="$scratch_root/$(basename "$spatial_h5ad")"
+else
+    run_spatial_h5ad="$spatial_h5ad"
+fi
+
 if rctd_complete "$deconv_output"; then
     echo "Step1 RCTD already complete, skipping."
 else
@@ -168,6 +174,7 @@ else
             rm -rf -- "$scratch_deconv" || exit 1
         fi
         mkdir -p "$scratch_root" || exit 1
+        cp "$spatial_h5ad" "$run_spatial_h5ad" || exit 1
         run_deconv_output=$scratch_deconv
     else
         # Non-scratch mode: clean shared deconv_output (not concurrency-safe; use scratch for parallel runs)
@@ -182,7 +189,7 @@ else
     rctd_args=(
         Rscript "$R_SCRIPT"
         --reference-dir "$reference_dir"
-        --spatial-h5ad "$spatial_h5ad"
+        --spatial-h5ad "$run_spatial_h5ad"
         --output-dir "$run_deconv_output"
         --reference-barcode-column "${rctd_reference_barcode_column}"
         --reference-numi-column "${rctd_reference_numi_column}"

@@ -55,11 +55,13 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+run_id=${SLURM_JOB_ID:-mrna_$$}
 scratch_sample=""
 
 cleanup_scratch() {
-    if [[ -n "$scratch_sample" && -d "$scratch_sample" ]]; then
-        rm -rf -- "$scratch_sample"
+    local run_dir="${scratch:-}/dbit/${run_id:-}"
+    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
+        rm -rf -- "$run_dir"
     fi
 }
 
@@ -159,7 +161,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     use_scratch=false
     if [ -n "$scratch" ]; then
         use_scratch=true
-        scratch_sample="$scratch/$sample_name"
+        scratch_sample="$scratch/dbit/$run_id/mrna"
         scratch_input="$scratch_sample/input"
         scratch_output="$scratch_sample/output"
     fi
@@ -224,31 +226,31 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     if $star_done; then
         echo "Step2 STAR already done for $sample_name, skipping..."
     else
-        if [[ -d "$final_results" ]]; then
-            echo "Removing incomplete STAR outputs for $sample_name while preserving deconv: $final_results"
-            find "$final_results" -mindepth 1 -maxdepth 1 ! -name deconv \
-                -exec rm -rf -- {} + || {
-                echo "Error: failed to remove incomplete STAR outputs: $final_results" >&2
-                exit 1
-            }
-        fi
-
         if $use_scratch; then
             mkdir -p "$scratch_input" "$scratch_output"
             cp "$pre_r1" "$pre_r2" "$scratch_input/"
             star_input="$scratch_input"
             star_results="$scratch_output/results"
+            # Only clean our own run_id-scoped scratch directory (safe for concurrency)
+            if [[ -d "$star_results" ]]; then
+                echo "Removing stale scratch STAR outputs for $sample_name: $star_results"
+                rm -rf -- "$star_results" || {
+                    echo "Error: failed to remove stale STAR outputs: $star_results" >&2
+                    exit 1
+                }
+            fi
         else
             star_input="$tmp_path"
             star_results="$orig_output_path/results"
-        fi
-
-        if $use_scratch && [[ -d "$star_results" ]]; then
-            echo "Removing stale scratch STAR outputs for $sample_name: $star_results"
-            rm -rf -- "$star_results" || {
-                echo "Error: failed to remove stale STAR outputs: $star_results" >&2
-                exit 1
-            }
+            # Non-scratch mode: clean shared final_results (not concurrency-safe; use scratch for parallel runs)
+            if [[ -d "$final_results" ]]; then
+                echo "Removing incomplete STAR outputs for $sample_name while preserving deconv: $final_results"
+                find "$final_results" -mindepth 1 -maxdepth 1 ! -name deconv \
+                    -exec rm -rf -- {} + || {
+                    echo "Error: failed to remove incomplete STAR outputs: $final_results" >&2
+                    exit 1
+                }
+            fi
         fi
         mkdir -p "$star_results"
         star_read_args=()

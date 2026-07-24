@@ -55,11 +55,13 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+run_id=${SLURM_JOB_ID:-amplicon_$$}
 scratch_run_dir=""
 
 cleanup_scratch() {
-    if [[ -n "$scratch_run_dir" && -d "$scratch_run_dir" ]]; then
-        rm -rf -- "$scratch_run_dir"
+    local run_dir="${scratch:-}/dbit/${run_id:-}"
+    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
+        rm -rf -- "$run_dir"
     fi
 }
 
@@ -117,9 +119,9 @@ fi
 mkdir -p "$output_path"
 
 if [ -n "$scratch" ]; then
-    scratch_input="$scratch/amplicon/input"
-    scratch_output="$scratch/amplicon/output"
-    scratch_run_dir="$scratch/amplicon"
+    scratch_input="$scratch/dbit/$run_id/amplicon/input"
+    scratch_output="$scratch/dbit/$run_id/amplicon/output"
+    scratch_run_dir="$scratch/dbit/$run_id/amplicon"
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"

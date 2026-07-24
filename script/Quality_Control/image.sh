@@ -57,11 +57,13 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+run_id=${SLURM_JOB_ID:-image_$$}
 scratch_run_dir=""
 
 cleanup_scratch() {
-    if [[ -n "$scratch_run_dir" && -d "$scratch_run_dir" ]]; then
-        rm -rf -- "$scratch_run_dir"
+    local run_dir="${scratch:-}/dbit/${run_id:-}"
+    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
+        rm -rf -- "$run_dir"
     fi
 }
 
@@ -111,7 +113,7 @@ if [ ! -d "$pixi_env_dir" ]; then
 fi
 
 if [ -n "$scratch" ]; then
-    scratch_run_dir="$scratch/image"
+    scratch_run_dir="$scratch/dbit/$run_id/image"
     mkdir -p "$scratch_run_dir"
     mkdir -p "$scratch_run_dir/result"
     cp "$image_path" "$scratch_run_dir/$image_name"

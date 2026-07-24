@@ -49,11 +49,13 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
+run_id=${SLURM_JOB_ID:-domain_$$}
 scratch_root=""
 
 cleanup_scratch() {
-    if [[ -n "$scratch_root" && -d "$scratch_root" ]]; then
-        rm -rf -- "$scratch_root"
+    local run_dir="${scratch:-}/dbit/${run_id:-}"
+    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
+        rm -rf -- "$run_dir"
     fi
 }
 
@@ -149,7 +151,7 @@ scratch_deconv=""
 
 if [[ -n ${scratch:-} ]]; then
     scratch=$(normalize_dir_path "$scratch")
-    scratch_root="$scratch/domain_analysis"
+    scratch_root="$scratch/dbit/$run_id/domain_analysis"
     scratch_deconv="$scratch_root/deconv"
     use_scratch=true
 fi
@@ -159,11 +161,8 @@ if rctd_complete "$deconv_output"; then
 else
     reference_dir=${rctd_reference_dir:-}
     reference_dir=$(normalize_dir_path "$reference_dir")
-    if [[ -d "$deconv_output" ]]; then
-        echo "Warning: removing incomplete RCTD output: $deconv_output" >&2
-        rm -rf -- "$deconv_output" || exit 1
-    fi
     if $use_scratch; then
+        # Only clean our own run_id-scoped scratch directory (safe for concurrency)
         if [[ -d "$scratch_deconv" ]]; then
             echo "Warning: removing incomplete scratch RCTD output: $scratch_deconv" >&2
             rm -rf -- "$scratch_deconv" || exit 1
@@ -171,6 +170,11 @@ else
         mkdir -p "$scratch_root" || exit 1
         run_deconv_output=$scratch_deconv
     else
+        # Non-scratch mode: clean shared deconv_output (not concurrency-safe; use scratch for parallel runs)
+        if [[ -d "$deconv_output" ]]; then
+            echo "Warning: removing incomplete RCTD output: $deconv_output" >&2
+            rm -rf -- "$deconv_output" || exit 1
+        fi
         mkdir -p "$(dirname "$deconv_output")" || exit 1
         run_deconv_output=$deconv_output
     fi

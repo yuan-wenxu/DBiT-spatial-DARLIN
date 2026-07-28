@@ -134,8 +134,7 @@ if [ -n "$mrna_dir" ]; then
         "$mrna_dir/raw/umap_filtered.png" \
         "$mrna_dir/raw/umi_filtered.png" \
         "$mrna_dir/raw/umi_per_cell_filtered.png" \
-        "$mrna_dir/raw/gene_filtered.png" \
-        "$mrna_dir/raw/gene_per_cell_filtered.png" || exit 1
+        "$mrna_dir/raw/gene_filtered.png" || exit 1
 fi
 
 # Filter amplicon spots and generate plots (only when amp_dir is provided)

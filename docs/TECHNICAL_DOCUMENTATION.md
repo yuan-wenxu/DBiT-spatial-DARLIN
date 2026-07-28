@@ -179,8 +179,7 @@ Solo.out/GeneFull/raw/
 ├── frame_umap.png
 ├── umap_legend.png
 ├── umi_filtered.png
-├── gene_filtered.png
-└── gene_per_cell_filtered.png
+└── gene_filtered.png
 ```
 
 `data.csv` contains spot-level information including:

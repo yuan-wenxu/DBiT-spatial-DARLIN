@@ -78,8 +78,6 @@ def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_con
         if not spots_with_cells.empty:
             print(f"Mean UMI per cell: {np.mean(spots_with_cells['umi_count']/spots_with_cells['count'])}")
             print(f"Median UMI per cell: {np.median(spots_with_cells['umi_count']/spots_with_cells['count'])}")
-            print(f"Mean Gene per cell: {np.mean(spots_with_cells['gene_count']/spots_with_cells['count'])}")
-            print(f"Median Gene per cell: {np.median(spots_with_cells['gene_count']/spots_with_cells['count'])}")
             plot_scatter(spots_with_cells['count'], spots_with_cells['umi_count'], m_path, umi_config)
             plot_scatter(spots_with_cells['count'], spots_with_cells['gene_count'], m_path, gene_config)
         print('\n')

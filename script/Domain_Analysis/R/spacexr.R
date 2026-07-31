@@ -2,7 +2,7 @@
 
 # Run spacexr/RCTD cell-type deconvolution with a 10x reference atlas.
 # The spatial H5AD must store raw integer counts in CSR-encoded X, barcodes in
-# obs/barcode, gene names in a configurable var field, and coordinates in obsm/spatial.
+# the obs index, gene names in var/gene_name, and coordinates in obsm/spatial.
 
 usage <- function(status = 0L) {
   cat(paste0(
@@ -11,8 +11,8 @@ usage <- function(status = 0L) {
     "                     [--reference-barcode-column NAME]\n",
     "                     [--reference-numi-column NAME]\n",
     "                     [--cell-type-column NAME]\n",
+    "                     [--dataset-column NAME]\n",
     "                     [--reference-gene-column INT]\n",
-    "                     [--spatial-gene-name-field NAME]\n",
     "                     [--max-cells-per-type INT]\n",
     "                     [--reference-cache FILE] [--cores INT]\n",
     "                     [--doublet-mode MODE] [--reference-min-umi INT]\n",
@@ -30,9 +30,9 @@ usage <- function(status = 0L) {
     "                                reference metadata barcode column (default: V1)\n",
     "  --reference-numi-column NAME  reference metadata UMI column (default: nCount_RNA)\n",
     "  --cell-type-column NAME       reference metadata annotation column (default: C66_named)\n",
+    "  --dataset-column NAME         reference dataset column used for balanced sampling\n",
+    "                                within each cell type (default: Dataset)\n",
     "  --reference-gene-column INT   gene-name column in features.tsv (default: 2)\n",
-    "  --spatial-gene-name-field NAME\n",
-    "                                gene-name field in AnnData var (default: gene_name)\n",
     "  --max-cells-per-type INT      reference sampling cap per cell type (default: 200)\n",
     "  --reference-cache FILE        reuse or save a sampled spacexr Reference RDS\n",
     "  --cores INT                   number of RCTD workers (default: 8)\n",
@@ -50,8 +50,8 @@ parse_args <- function(args) {
     reference_barcode_column = "V1",
     reference_numi_column = "nCount_RNA",
     cell_type_column = "C66_named",
+    dataset_column = "Dataset",
     reference_gene_column = "2",
-    spatial_gene_name_field = "gene_name",
     max_cells_per_type = "200",
     cores = "8",
     doublet_mode = "full",
@@ -160,13 +160,12 @@ read_h5ad_string_vector <- function(file, path) {
   stop("Unsupported H5AD string encoding at ", path, ": ", encoding)
 }
 
-read_spatial_h5ad <- function(path, gene_name_field) {
+read_spatial_h5ad <- function(path) {
   message("Reading spatial H5AD: ", path)
   file <- hdf5r::H5File$new(path, mode = "r")
   on.exit(file$close_all(), add = TRUE)
 
-  gene_name_path <- paste0("var/", gene_name_field)
-  required <- c("X/data", "X/indices", "X/indptr", "obs/barcode", gene_name_path, "obsm/spatial")
+  required <- c("X/data", "X/indices", "X/indptr", "obs/barcode", "var/gene_name", "obsm/spatial")
   missing <- required[!vapply(required, function(key) file$exists(key), logical(1))]
   if (length(missing)) stop("H5AD is missing: ", paste(missing, collapse = ", "))
   if (!identical(hdf5r::h5attr(file[["X"]], "encoding-type"), "csr_matrix")) {
@@ -190,7 +189,7 @@ read_spatial_h5ad <- function(path, gene_name_field) {
     Dim = as.integer(c(shape[[2L]], shape[[1L]]))
   )
   barcodes <- read_h5ad_string_vector(file, "obs/barcode")
-  gene_names <- read_h5ad_string_vector(file, gene_name_path)
+  gene_names <- read_h5ad_string_vector(file, "var/gene_name")
   spatial <- t(file[["obsm/spatial"]][, ])
   if (length(barcodes) != ncol(counts) || length(gene_names) != nrow(counts)) {
     stop("H5AD X dimensions disagree with obs/var indices")
@@ -209,18 +208,20 @@ read_spatial_h5ad <- function(path, gene_name_field) {
   list(counts = counts, coords = coords)
 }
 
-read_hypomap_metadata <- function(path, barcode_column, numi_column, cell_type_column) {
+read_hypomap_metadata <- function(path, barcode_column, numi_column,
+                                  cell_type_column, dataset_column) {
   command <- paste("gzip -dc", shQuote(path))
   suppressWarnings(data.table::fread(
     cmd = command,
-    select = c(barcode_column, numi_column, cell_type_column),
+    select = c(barcode_column, numi_column, cell_type_column, dataset_column),
     na.strings = c("NA", ""),
     showProgress = FALSE
   ))
 }
 
 sample_reference_cells <- function(metadata, barcode_column, numi_column,
-                                   cell_type_column, max_per_type, min_umi, seed) {
+                                   cell_type_column, dataset_column,
+                                   max_per_type, min_umi, seed) {
   names(metadata)[names(metadata) == barcode_column] <- "barcode"
   names(metadata)[names(metadata) == numi_column] <- "nUMI"
   keep <- !is.na(metadata[[cell_type_column]]) &
@@ -228,24 +229,78 @@ sample_reference_cells <- function(metadata, barcode_column, numi_column,
     !is.na(metadata$nUMI) &
     metadata$nUMI >= min_umi
   metadata <- metadata[keep, , drop = FALSE]
-  groups <- split(seq_len(nrow(metadata)), metadata[[cell_type_column]], drop = TRUE)
+  missing_dataset <- is.na(metadata[[dataset_column]]) |
+    !nzchar(as.character(metadata[[dataset_column]]))
+  if (any(missing_dataset)) {
+    stop(
+      "Reference cells passing annotation and UMI filters contain missing ",
+      dataset_column, " values"
+    )
+  }
+
   set.seed(seed)
-  selected <- unlist(lapply(groups, function(index) {
-    if (length(index) <= max_per_type) index else sample(index, max_per_type)
-  }), use.names = FALSE)
-  metadata[selected, , drop = FALSE]
+  positions_by_type <- split(
+    seq_len(nrow(metadata)),
+    metadata[[cell_type_column]],
+    drop = TRUE
+  )
+  selected <- lapply(positions_by_type, function(type_positions) {
+    positions_by_dataset <- split(
+      type_positions,
+      metadata[[dataset_column]][type_positions],
+      drop = TRUE
+    )
+    positions_by_dataset <- lapply(
+      positions_by_dataset,
+      function(positions) {
+        if (length(positions) <= 1L) positions else sample(positions, length(positions))
+      }
+    )
+
+    selected_for_type <- integer()
+    depth <- 1L
+    while (length(selected_for_type) < max_per_type) {
+      current <- vapply(
+        positions_by_dataset,
+        function(positions) {
+          if (depth <= length(positions)) positions[[depth]] else NA_integer_
+        },
+        integer(1)
+      )
+      current <- unname(current[!is.na(current)])
+      if (!length(current)) break
+      remaining <- max_per_type - length(selected_for_type)
+      selected_for_type <- c(selected_for_type, head(current, remaining))
+      depth <- depth + 1L
+    }
+    selected_for_type
+  })
+  selected <- sort(unlist(selected, use.names = FALSE))
+  sampled <- metadata[selected, , drop = FALSE]
+  expected_counts <- pmin(
+    table(metadata[[cell_type_column]]),
+    max_per_type
+  )
+  observed_counts <- table(factor(
+    sampled[[cell_type_column]],
+    levels = names(expected_counts)
+  ))
+  if (!identical(as.integer(observed_counts), as.integer(expected_counts))) {
+    stop("Dataset-balanced reference sampling failed cell-type count validation")
+  }
+  sampled
 }
 
 build_reference <- function(directory, barcode_column, numi_column, cell_type_column,
-                            gene_column, max_per_type, min_umi, seed) {
+                            dataset_column, gene_column, max_per_type, min_umi, seed) {
   matrix_path <- find_one(directory, "matrix.mtx")
   feature_path <- find_one(directory, "features.tsv")
   barcode_path <- find_one(directory, "barcodes.tsv")
   metadata_path <- find_one(directory, "metadata.tsv")
 
-  message("Reading HypoMap metadata and sampling reference cells")
+  message("Reading HypoMap metadata and sampling reference cells across datasets")
   metadata <- read_hypomap_metadata(
-    metadata_path, barcode_column, numi_column, cell_type_column
+    metadata_path, barcode_column, numi_column, cell_type_column, dataset_column
   )
   barcodes <- read_tsv(barcode_path, header = FALSE)[[1L]]
   if (nrow(metadata) != length(barcodes) ||
@@ -253,13 +308,14 @@ build_reference <- function(directory, barcode_column, numi_column, cell_type_co
     stop("HypoMap metadata row IDs do not match barcodes.tsv order")
   }
   sampled <- sample_reference_cells(
-    metadata, barcode_column, numi_column, cell_type_column,
+    metadata, barcode_column, numi_column, cell_type_column, dataset_column,
     max_per_type, min_umi, seed
   )
   selected_columns <- match(sampled$barcode, barcodes)
   message(
     "Selected ", nrow(sampled), " reference cells across ",
-    data.table::uniqueN(sampled[[cell_type_column]]), " cell types"
+    data.table::uniqueN(sampled[[cell_type_column]]), " cell types and ",
+    data.table::uniqueN(sampled[[dataset_column]]), " datasets"
   )
   rm(metadata, barcodes)
   gc(verbose = FALSE)
@@ -298,6 +354,8 @@ build_reference <- function(directory, barcode_column, numi_column, cell_type_co
     barcode_column = barcode_column,
     numi_column = numi_column,
     cell_type_column = cell_type_column,
+    dataset_column = dataset_column,
+    sampling = "round_robin_within_cell_type_across_dataset",
     gene_column = gene_column,
     max_cells_per_type = max_per_type,
     seed = seed
@@ -337,28 +395,40 @@ if (!args$doublet_mode %in% c("full", "doublet", "multi")) {
   stop("--doublet-mode must be full, doublet, or multi")
 }
 
-spatial <- read_spatial_h5ad(args$spatial_h5ad, args$spatial_gene_name_field)
+spatial <- read_spatial_h5ad(args$spatial_h5ad)
 
 reference_bundle <- NULL
 if (!is.null(args$reference_cache) && file.exists(args$reference_cache)) {
   message("Loading cached spacexr reference: ", args$reference_cache)
-  reference_bundle <- readRDS(args$reference_cache)
+  cached_reference_bundle <- readRDS(args$reference_cache)
   cache_settings <- c(
     barcode_column = args$reference_barcode_column,
     numi_column = args$reference_numi_column,
     cell_type_column = args$cell_type_column,
+    dataset_column = args$dataset_column,
+    sampling = "round_robin_within_cell_type_across_dataset",
     gene_column = reference_gene_column
   )
-  cached_settings <- unlist(reference_bundle[names(cache_settings)], use.names = TRUE)
-  if (!identical(cached_settings, cache_settings)) {
-    stop("Reference cache was built with different reference column settings")
+  cached_settings <- unlist(
+    cached_reference_bundle[names(cache_settings)],
+    use.names = TRUE
+  )
+  if (identical(cached_settings, cache_settings)) {
+    reference_bundle <- cached_reference_bundle
+  } else {
+    message(
+      "Reference cache settings differ from the requested Dataset-balanced ",
+      "sampling; rebuilding and overwriting: ", args$reference_cache
+    )
   }
-} else {
+}
+if (is.null(reference_bundle)) {
   reference_bundle <- build_reference(
     args$reference_dir,
     args$reference_barcode_column,
     args$reference_numi_column,
     args$cell_type_column,
+    args$dataset_column,
     reference_gene_column,
     max_per_type,
     reference_min_umi,
@@ -414,16 +484,18 @@ if (!is.null(rctd@results$weights)) {
 
 run_info <- data.frame(
   key = c(
-    "reference_dir", "spatial_h5ad", "spatial_gene_name_field",
+    "reference_dir", "spatial_h5ad",
     "reference_barcode_column", "reference_numi_column", "cell_type_column",
+    "dataset_column", "reference_sampling",
     "reference_gene_column",
     "reference_cells", "cell_types", "spatial_spots", "shared_genes",
     "doublet_mode", "cores", "test_mode", "seed", "spacexr_version", "R_version"
   ),
   value = c(
     normalizePath(args$reference_dir), normalizePath(args$spatial_h5ad),
-    args$spatial_gene_name_field, args$reference_barcode_column,
-    args$reference_numi_column, args$cell_type_column, reference_gene_column,
+    args$reference_barcode_column,
+    args$reference_numi_column, args$cell_type_column, args$dataset_column,
+    "round_robin_within_cell_type_across_dataset", reference_gene_column,
     ncol(reference@counts), nlevels(reference@cell_types), ncol(spatial$counts),
     length(common_genes), args$doublet_mode, cores, isTRUE(args$test_mode), seed,
     as.character(utils::packageVersion("spacexr")), R.version.string

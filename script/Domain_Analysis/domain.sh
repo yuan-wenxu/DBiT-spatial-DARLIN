@@ -253,6 +253,10 @@ banksy_args=(
     --pixel-length "$pixel_length"
     --orientation "$orientation"
     --rotate "$display_rotate"
+    --expression-h5ad "$spatial_h5ad"
+    --expression-hvg-count "${banksy_expression_hvg_count}"
+    --expression-components "${banksy_expression_components}"
+    --expression-weight "${banksy_expression_weight}"
 )
 [[ "$swap_xy" == True ]] && banksy_args+=(--swap_xy)
 if [[ "$banksy_subcluster" == True ]]; then

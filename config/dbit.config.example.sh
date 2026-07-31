@@ -65,6 +65,9 @@ rctd_cores=8
 rctd_mode=full
 rctd_ref_min_umi=100
 rctd_spa_min_umi=100
+banksy_expression_hvg_count=3000
+banksy_expression_components=20
+banksy_expression_weight=0.3
 
 # SLURM resources (used when execution_mode=hpc)
 sbatch_job_name_prefix=dbit

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cluster RCTD cell-type weights into spatial domains with BANKSY."""
+"""Cluster RCTD weights, optionally with expression, into spatial domains."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from banksy.embed_banksy import generate_banksy_matrix
 from banksy.initialize_banksy import initialize_banksy
 from banksy_utils.umap_pca import pca_umap
 import matplotlib
+import scanpy as sc
 
 matplotlib.use("Agg")
 
@@ -26,6 +27,7 @@ from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageOps
+from scipy import sparse
 
 
 BASE_GRID_SPOTS = 50
@@ -37,6 +39,7 @@ PLOT_EDGE_PAD = 0.9
 DOWNSAMPLE_FACTOR = 10
 MIN_OUTPUT_DIMENSION = 1500
 CELL_TYPE_DIFFERENCE_THRESHOLD = 0.05
+PEARSON_RESIDUAL_THETA = 100
 
 
 def spatial_figure_layout(
@@ -103,6 +106,35 @@ def parse_args() -> argparse.Namespace:
         help=(
             "New or empty output directory (default: banksy_output next to "
             "the input file)."
+        ),
+    )
+    parser.add_argument(
+        "--expression-h5ad",
+        type=Path,
+        help=(
+            "Optional raw-count expression H5AD. Existing metadata and embeddings "
+            "are discarded before expression PCA is recomputed."
+        ),
+    )
+    parser.add_argument(
+        "--expression-hvg-count",
+        type=int,
+        default=3000,
+        help="Number of expression highly variable genes (default: 3000).",
+    )
+    parser.add_argument(
+        "--expression-components",
+        type=int,
+        default=20,
+        help="Number of expression embedding components to use (default: 20).",
+    )
+    parser.add_argument(
+        "--expression-weight",
+        type=float,
+        default=0.3,
+        help=(
+            "Target expression contribution in the joint feature variance; "
+            "RCTD receives 1 minus this value (default: 0.3)."
         ),
     )
     parser.add_argument(
@@ -285,6 +317,14 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit(f"Weights file not found: {args.weights_file}")
     if args.output_dir is None:
         args.output_dir = args.weights_file.parent / "banksy_output"
+    if args.expression_h5ad is not None and not args.expression_h5ad.is_file():
+        raise SystemExit(f"Expression H5AD not found: {args.expression_h5ad}")
+    if args.expression_hvg_count < 1:
+        raise SystemExit("--expression-hvg-count must be a positive integer")
+    if args.expression_components < 1:
+        raise SystemExit("--expression-components must be a positive integer")
+    if not 0.0 < args.expression_weight < 1.0:
+        raise SystemExit("--expression-weight must be between 0 and 1")
     if not 0.0 <= args.lambda_param <= 1.0:
         raise SystemExit("--lambda-param must be between 0 and 1")
     if args.resolution <= 0:
@@ -360,10 +400,175 @@ def load_weights(path: Path, normalize: bool):
         {"x": coordinates[:, 0], "y": coordinates[:, 1]}, index=barcodes
     )
     obs.index.name = "barcode"
-    var = pd.DataFrame(index=pd.Index(feature_columns, name="cell_type"))
+    var = pd.DataFrame(
+        {"modality": "rctd", "feature_weight": 1.0},
+        index=pd.Index(feature_columns, name="feature"),
+    )
     adata = ad.AnnData(X=values, obs=obs, var=var)
     adata.obsm["spatial"] = coordinates
     return adata, table, feature_columns
+
+
+def add_expression_pca(
+    adata,
+    path: Path,
+    requested_hvgs: int,
+    requested_components: int,
+    seed: int,
+):
+    source = ad.read_h5ad(path, backed="r")
+    try:
+        if not source.obs_names.is_unique:
+            raise SystemExit("Expression H5AD obs names must be unique")
+        indexer = source.obs_names.get_indexer(adata.obs_names)
+        if (indexer < 0).any():
+            missing = adata.obs_names[indexer < 0].tolist()
+            preview = ", ".join(map(str, missing[:5]))
+            raise SystemExit(
+                f"Expression H5AD is missing RCTD barcode(s): {preview}"
+            )
+
+        if "spatial" in source.obsm:
+            expression_coordinates = np.asarray(
+                source.obsm["spatial"], dtype=np.float64
+            )[indexer]
+        elif {"x", "y"}.issubset(source.obs.columns):
+            expression_coordinates = source.obs.iloc[indexer][
+                ["x", "y"]
+            ].to_numpy(dtype=np.float64)
+        else:
+            raise SystemExit(
+                "Expression H5AD must contain obsm['spatial'] or obs x/y coordinates"
+            )
+        if expression_coordinates.shape != adata.obsm["spatial"].shape or not np.allclose(
+            expression_coordinates,
+            adata.obsm["spatial"],
+            rtol=0.0,
+            atol=1e-8,
+        ):
+            raise SystemExit(
+                "Expression and RCTD spatial coordinates differ after barcode alignment"
+            )
+
+        aligned = source[indexer, :].to_memory()
+    finally:
+        source.file.close()
+
+    # Keep only raw counts and identifiers. All original obs/var metadata,
+    # embeddings, graphs, layers, and unstructured annotations are discarded.
+    expression = ad.AnnData(
+        X=aligned.X.copy(),
+        obs=pd.DataFrame(
+            index=pd.Index(adata.obs_names.astype(str), name="barcode")
+        ),
+        var=pd.DataFrame(
+            index=pd.Index(aligned.var_names.astype(str), name="gene")
+        ),
+    )
+    del aligned
+    expression.var_names_make_unique()
+    count_values = (
+        expression.X.data
+        if sparse.issparse(expression.X)
+        else np.asarray(expression.X).ravel()
+    )
+    if not np.isfinite(count_values).all() or (count_values < 0).any():
+        raise SystemExit("Expression X must contain finite, non-negative raw counts")
+    if not np.allclose(count_values, np.rint(count_values)):
+        raise SystemExit("Expression X must contain raw integer counts for PCA recomputation")
+
+    hvg_count = min(requested_hvgs, expression.n_vars)
+    sc.experimental.pp.highly_variable_genes(
+        expression,
+        flavor="pearson_residuals",
+        n_top_genes=hvg_count,
+        theta=PEARSON_RESIDUAL_THETA,
+        inplace=True,
+    )
+    hvg_mask = expression.var["highly_variable"].to_numpy()
+    hvg_totals = np.asarray(expression[:, hvg_mask].X.sum(axis=1)).ravel()
+    if (hvg_totals <= 0).any():
+        bad_barcodes = expression.obs_names[hvg_totals <= 0].tolist()
+        preview = ", ".join(map(str, bad_barcodes[:5]))
+        raise SystemExit(
+            "Expression PCA cannot be computed for spot(s) with zero counts "
+            f"across selected HVGs: {preview}"
+        )
+
+    components = min(
+        requested_components,
+        expression.n_obs - 1,
+        hvg_count - 1,
+    )
+    if components < 1:
+        raise SystemExit("Not enough expression spots or genes to recompute PCA")
+    expression_pca = expression[:, hvg_mask].copy()
+    sc.experimental.pp.normalize_pearson_residuals(
+        expression_pca,
+        theta=PEARSON_RESIDUAL_THETA,
+        inplace=True,
+    )
+    sc.pp.pca(
+        expression_pca,
+        n_comps=components,
+        random_state=seed,
+    )
+    aligned_embedding = np.asarray(
+        expression_pca.obsm["X_pca"][:, :components], dtype=np.float64
+    )
+    if not np.isfinite(aligned_embedding).all():
+        raise SystemExit("Recomputed expression PCA contains non-finite values")
+    explained_variance_ratio = np.asarray(
+        expression_pca.uns["pca"]["variance_ratio"][:components],
+        dtype=np.float64,
+    )
+    if (
+        not np.isfinite(explained_variance_ratio).all()
+        or (explained_variance_ratio < 0).any()
+        or explained_variance_ratio.sum() <= 0
+    ):
+        raise SystemExit("Expression PCA explained variance ratios are invalid")
+    expression_feature_weights = (
+        explained_variance_ratio / explained_variance_ratio.sum()
+    )
+
+    expression_names = [
+        f"expression_pc_{component + 1:02d}" for component in range(components)
+    ]
+    joint_values = np.concatenate(
+        [dense_values(adata.X), aligned_embedding], axis=1
+    )
+    joint_var = pd.concat(
+        [
+            adata.var.copy(),
+            pd.DataFrame(
+                {
+                    "modality": "expression",
+                    "feature_weight": expression_feature_weights,
+                },
+                index=pd.Index(expression_names, name=adata.var_names.name),
+            ),
+        ]
+    )
+    joint = ad.AnnData(X=joint_values, obs=adata.obs.copy(), var=joint_var)
+    joint.obsm["spatial"] = adata.obsm["spatial"].copy()
+    metadata = {
+        "h5ad": str(path.resolve()),
+        "input_metadata_discarded": True,
+        "preprocessing": "pearson_residuals",
+        "pearson_residual_theta": PEARSON_RESIDUAL_THETA,
+        "input_spots": int(expression.n_obs),
+        "input_genes": int(expression.n_vars),
+        "requested_hvgs": requested_hvgs,
+        "used_hvgs": int(expression_pca.n_vars),
+        "requested_components": requested_components,
+        "used_components": components,
+        "expression_pca_recomputed": True,
+        "pca_variance_weighted": True,
+        "selected_pca_explained_variance_ratio": explained_variance_ratio.tolist(),
+        "normalized_pca_feature_weights": expression_feature_weights.tolist(),
+    }
+    return joint, metadata
 
 
 def transform_coordinates(
@@ -458,20 +663,6 @@ def resize_spot_image(
     return image.resize((resized_width, resized_height), resample=Image.NEAREST)
 
 
-def run_banksy(adata, args: argparse.Namespace):
-    return run_banksy_partition(
-        adata=adata,
-        lambda_param=args.lambda_param,
-        resolution=args.resolution,
-        spatial_neighbors_arg=args.spatial_neighbors,
-        cluster_neighbors_arg=args.cluster_neighbors,
-        pca_components_arg=args.pca_components,
-        max_m=args.max_m,
-        neighbor_decay=args.neighbor_decay,
-        seed=args.seed,
-    )
-
-
 def run_banksy_partition(
     adata,
     lambda_param: float,
@@ -482,6 +673,7 @@ def run_banksy_partition(
     max_m: int,
     neighbor_decay: str,
     seed: int,
+    expression_weight: float,
 ):
     if adata.n_obs < 3:
         raise SystemExit("BANKSY clustering requires at least three spots")
@@ -507,6 +699,32 @@ def run_banksy_partition(
         save_matrix=False,
         verbose=False,
     )
+    modalities = banksy_adata.var["modality"].astype(str)
+    if "expression" in set(modalities):
+        original_features = ~banksy_adata.var["is_nbr"].astype(bool)
+        feature_weights = banksy_adata.var["feature_weight"].to_numpy(
+            dtype=np.float64
+        )
+        column_scale_squared = np.zeros(banksy_adata.n_vars, dtype=np.float64)
+        modality_targets = {
+            "rctd": 1.0 - expression_weight,
+            "expression": expression_weight,
+        }
+        for modality, target_weight in modality_targets.items():
+            modality_mask = modalities.eq(modality).to_numpy()
+            original_mask = original_features.to_numpy() & modality_mask
+            original_weight_sum = feature_weights[original_mask].sum()
+            if original_mask.sum() < 1 or original_weight_sum <= 0:
+                raise RuntimeError(
+                    f"Joint BANKSY input has invalid {modality} feature weights"
+                )
+            column_scale_squared[modality_mask] = (
+                target_weight
+                * feature_weights[modality_mask]
+                / original_weight_sum
+            )
+        column_scales = np.sqrt(column_scale_squared)
+        banksy_adata.X = np.asarray(banksy_adata.X) * column_scales[None, :]
 
     max_components = min(banksy_adata.n_obs - 1, banksy_adata.n_vars)
     pca_components = min(pca_components_arg, max_components)
@@ -568,7 +786,8 @@ def merge_similar_subclusters(sub_adata, sub_labels, min_differential_cell_types
     if len(unique_labels) < 2:
         return labels, []
 
-    values = dense_values(sub_adata.X)
+    rctd_mask = sub_adata.var["modality"].astype(str).eq("rctd").to_numpy()
+    values = dense_values(sub_adata.X)[:, rctd_mask]
     means = {
         label: values[labels == label].mean(axis=0)
         for label in unique_labels
@@ -661,6 +880,7 @@ def subcluster_domains(adata, parent_labels, args: argparse.Namespace):
                     max_m=args.max_m,
                     neighbor_decay=args.neighbor_decay,
                     seed=args.seed,
+                    expression_weight=args.expression_weight,
                 )
             )
         except Exception as error:
@@ -871,6 +1091,23 @@ def save_outputs(
         "weights_file": str(args.weights_file.resolve()),
         "normalized_weights": not args.no_normalize_weights,
         "cell_type_columns": feature_columns,
+        "expression": getattr(args, "expression_metadata", None),
+        "expression_weight": (
+            args.expression_weight if args.expression_h5ad is not None else None
+        ),
+        "rctd_weight": (
+            1.0 - args.expression_weight
+            if args.expression_h5ad is not None
+            else None
+        ),
+        "joint_pca_recomputed": args.expression_h5ad is not None,
+        "modality_balancing": (
+            "scale each BANKSY feature by sqrt(modality_weight * "
+            "normalized_original_feature_weight); RCTD features are equal and "
+            "expression PCs follow explained variance"
+            if args.expression_h5ad is not None
+            else None
+        ),
         "lambda_param": args.lambda_param,
         "resolution": args.resolution,
         "spatial_neighbors": spatial_neighbors,
@@ -923,7 +1160,27 @@ def main() -> None:
     adata, source_table, feature_columns = load_weights(
         args.weights_file, normalize=not args.no_normalize_weights
     )
-    result = run_banksy(adata, args)
+    args.expression_metadata = None
+    if args.expression_h5ad is not None:
+        adata, args.expression_metadata = add_expression_pca(
+            adata,
+            path=args.expression_h5ad,
+            requested_hvgs=args.expression_hvg_count,
+            requested_components=args.expression_components,
+            seed=args.seed,
+        )
+    result = run_banksy_partition(
+        adata=adata,
+        lambda_param=args.lambda_param,
+        resolution=args.resolution,
+        spatial_neighbors_arg=args.spatial_neighbors,
+        cluster_neighbors_arg=args.cluster_neighbors,
+        pca_components_arg=args.pca_components,
+        max_m=args.max_m,
+        neighbor_decay=args.neighbor_decay,
+        seed=args.seed,
+        expression_weight=args.expression_weight,
+    )
     final_labels = np.asarray([str(label) for label in result[1]], dtype=object)
     subcluster_summary = []
     if args.subcluster:

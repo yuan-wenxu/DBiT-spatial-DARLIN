@@ -140,7 +140,11 @@ def make_h5ad_names_writable(adata):
     sanitize(adata.uns)
 
 
-def plot_cluster(adata, whitelist_path, output, config):
+def plot_cluster(adata, whitelist_path, output, config, cb_len):
+
+    if cb_len <= 0 or cb_len % 2 != 0:
+        raise ValueError('cb_len must be a positive even integer')
+    barcode_axis_len = cb_len // 2
 
     # extract umi counts and gene counts before normalization
     result = adata.obs[['total_counts', 'n_genes_by_counts']].reset_index()
@@ -199,8 +203,8 @@ def plot_cluster(adata, whitelist_path, output, config):
     plt.savefig(f'{output}/umap.png', bbox_inches='tight', dpi=300)
     plt.close()
 
-    result['xbc'] = result['barcode'].str[8:16]
-    result['ybc'] = result['barcode'].str[:8]
+    result['xbc'] = result['barcode'].str[barcode_axis_len:cb_len]
+    result['ybc'] = result['barcode'].str[:barcode_axis_len]
     whitelist = [line.strip() for line in open(whitelist_path).readlines()]
     result['x'] = result['xbc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)
     result['y'] = result['ybc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)
@@ -286,6 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--file_path', type=str, help='Path to directory containing GeneFull or Gene folder', required=True)
     parser.add_argument('-w', '--whitelist_path', type=str, help='Path to whitelist file', required=True)
     parser.add_argument('-o', '--output_path', type=str, help='Path to output directory', required=True)
+    parser.add_argument('--cb-len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
     parser.add_argument('--x_spots_number', type=int, default=50, help='Number of spots in x direction')
     parser.add_argument('--y_spots_number', type=int, default=50, help='Number of spots in y direction')
     parser.add_argument('--length_spot', type=int, default=20, help='Length of each spot in pixels')
@@ -294,4 +299,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     config = PlotConfig(args.x_spots_number, args.y_spots_number, args.length_spot, args.interval, args.pixel_length)
-    data = plot_cluster(args.file_path, args.whitelist_path, args.output_path, config)
+    data = plot_cluster(args.file_path, args.whitelist_path, args.output_path, config, args.cb_len)

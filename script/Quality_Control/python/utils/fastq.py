@@ -78,7 +78,9 @@ def iter_fastq(handle):
         yield read_id, seq, qual
 
 
-def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len=16, ub_len=10):
+def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len, ub_len):
+    if sb_len <= 0 or ub_len <= 0:
+        raise ValueError("sb_len and ub_len must be positive integers")
     rows = []
     n_total = 0
     n_kept = 0

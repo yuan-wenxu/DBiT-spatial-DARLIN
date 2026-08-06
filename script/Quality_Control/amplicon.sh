@@ -162,7 +162,9 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         -cl "$compression_level" -cut "$cutadapt" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
         -go "$gzip_output" \
-        -cb "false" 2>&1 | tee "$output_path/${sample_name}_preprocess.log" || {
+        -cb "false" \
+        -bl "$sb_len" \
+        -ul "$ub_len" 2>&1 | tee "$output_path/${sample_name}_preprocess.log" || {
             echo "Error: preprocessing failed for $sample_name; see $output_path/${sample_name}_preprocess.log" >&2
             exit 1
         }
@@ -200,6 +202,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     run_pixi python "$PYTHON_DIR/plot/heatmap.py" \
         -f "$results/final.csv" \
         -w "$whitelist_path" \
+        --cb-len "$sb_len" \
         -o "$results" || exit 1
 done
 

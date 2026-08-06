@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 
-def plot_heatmap(file_path, whitelist_path, output):
+def plot_heatmap(file_path, whitelist_path, output, cb_len):
+    if cb_len <= 0 or cb_len % 2 != 0:
+        raise ValueError('cb_len must be a positive even integer')
+    barcode_axis_len = cb_len // 2
     data = pd.read_csv(file_path, header = 0)
     if 'x' in data.columns:
         if 'umi_count' in data.columns:
@@ -13,8 +16,8 @@ def plot_heatmap(file_path, whitelist_path, output):
             data = data.groupby(['x', 'y']).agg({'UR': 'nunique', 'reads': 'sum'}).reset_index()
             data['umi_count'] = data['UR']
     else:
-        data['xbc'] = data['SR'].str[8:16]
-        data['ybc'] = data['SR'].str[:8]
+        data['xbc'] = data['SR'].str[barcode_axis_len:cb_len]
+        data['ybc'] = data['SR'].str[:barcode_axis_len]
         data['UMI'] = data['UR']
         data['reads'] = data['reads']
         whitelist = [line.strip() for line in open(whitelist_path).readlines()]
@@ -91,6 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--file_path', type=str, help='Path to the directory containing the final.csv file')
     parser.add_argument('-w', '--whitelist_path', type=str, help='Path to the whitelist file')
     parser.add_argument('-o', '--output', type=str, help='Path to the output directory')
+    parser.add_argument('--cb-len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
     args = parser.parse_args()
 
-    plot_heatmap(args.file_path, args.whitelist_path, args.output)
+    plot_heatmap(args.file_path, args.whitelist_path, args.output, args.cb_len)

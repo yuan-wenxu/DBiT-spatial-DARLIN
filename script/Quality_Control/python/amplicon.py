@@ -71,8 +71,8 @@ def parse_args():
         help="Output directory for final.csv and QC plots.",
     )
     parser.add_argument("--whitelist", help="Optional TSV/text file with one DBiT barcode per line for SB correction.")
-    parser.add_argument("--sb-len", dest="sb_len", type=int, default=16, help="Length of concatenated spot barcode.")
-    parser.add_argument("--ub-len", type=int, default=10, help="Length of UMI barcode.")
+    parser.add_argument("--sb-len", dest="sb_len", type=int, required=True, help="Length of concatenated spot barcode.")
+    parser.add_argument("--ub-len", type=int, required=True, help="Length of UMI barcode.")
     parser.add_argument("--umi_hd_threshold", type=int, default=1, help="Hamming-distance threshold for UMI correction within each SR.")
     parser.add_argument("--min-lb-len", type=int, default=20, help="Minimum lineage barcode length.")
     parser.add_argument(
@@ -121,6 +121,10 @@ def parse_args():
 
     if args.darlin and not args.lineage_bc_fq:
         parser.error("amplicon.py requires -dr/--darlin_reads when -d/--darlin is True.")
+    if args.sb_len <= 0 or args.sb_len % 2 != 0:
+        parser.error("--sb-len must be a positive even integer.")
+    if args.ub_len <= 0:
+        parser.error("--ub-len must be a positive integer.")
 
     args.output_path = Path(args.output_path)
     args.output_path.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,10 @@ import os
 
 darlin = ['CA', 'RA', 'TA']
 
-def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config):
+def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config, cb_len):
+    if cb_len <= 0 or cb_len % 2 != 0:
+        raise ValueError('cb_len must be a positive even integer')
+    barcode_axis_len = cb_len // 2
     cell_number = pd.read_csv(cell_number_file, header = 0)
     required = {'x', 'y', 'count', 'in_tissue'}
     missing = required.difference(cell_number.columns)
@@ -18,8 +21,8 @@ def main(cell_number_file, darlin_path, umi_config, whitelist_path, plot_config)
         darlin_file = darlin_path + '/' + d + '/' + 'final.csv'
         if os.path.exists(darlin_file):
             darlin_data = pd.read_csv(darlin_file, header = 0)
-            darlin_data['xbc'] = darlin_data['SR'].str[8:16]
-            darlin_data['ybc'] = darlin_data['SR'].str[:8]
+            darlin_data['xbc'] = darlin_data['SR'].str[barcode_axis_len:cb_len]
+            darlin_data['ybc'] = darlin_data['SR'].str[:barcode_axis_len]
             darlin_data['x'] = darlin_data['xbc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)
             darlin_data['y'] = darlin_data['ybc'].apply(lambda bc: whitelist.index(bc) if bc in whitelist else -1)        
             merge_data = darlin_data.merge(
@@ -55,6 +58,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--cell_number_file', type=str, help='cell number file')
     parser.add_argument('-d', '--darlin_path', type=str, help='data path')
     parser.add_argument('-w', '--whitelist_path', type=str, help='whitelist file')
+    parser.add_argument('--cb-len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
     parser.add_argument('--x_spots_number', type=int, default=50, help='Number of spots in x direction')
     parser.add_argument('--y_spots_number', type=int, default=50, help='Number of spots in y direction')
     parser.add_argument('--length_spot', type=int, default=20, help='Length of each spot in pixels')
@@ -74,4 +78,4 @@ if __name__ == '__main__':
     frame_config = PlotConfig(x_spots_number, y_spots_number, length_spot, interval, pixel_length)
 
     umi_config = ScatterConfig('Number of cells', 'Number of UMIs', 'UMI_distribution', False, True, False, False)
-    main(cell_number_file, darlin_path, umi_config, whitelist_path, frame_config)
+    main(cell_number_file, darlin_path, umi_config, whitelist_path, frame_config, args.cb_len)

@@ -145,6 +145,7 @@ if [ -n "$amp_dir" ]; then
             -c "$cell_number_file" \
             -d "$amp_dir" \
             -w "$whitelist_path" \
+            --cb-len "$sb_len" \
             --x_spots_number "$x_spots_number" \
             --y_spots_number "$y_spots_number" \
             --length_spot "$length_spot" \

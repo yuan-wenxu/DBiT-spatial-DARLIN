@@ -7,8 +7,8 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import zip_longest
 from tqdm import tqdm
 
-BARCODE_LEN = 8
-UMI_LEN = 10
+BARCODE_LEN = None
+UMI_LEN = None
 DEFAULT_LINKER_WINDOW = 2
 DEFAULT_BATCH_SIZE = 50000
 Match = namedtuple("Match", ["start", "end"])
@@ -203,9 +203,9 @@ def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_w
 def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
     """
     seq/qual are strings. Extract:
-      - barcodeA: 8bp immediately after linker2
-      - barcodeB: 8bp immediately before linker2
-      - umi: 10bp immediately after linker1
+      - barcodeA: configured component length immediately after linker2
+      - barcodeB: configured component length immediately before linker2
+      - umi: configured length immediately after linker1
     """
     barcodeA = seq[linker2_end: linker2_end + BARCODE_LEN]
     barcodeB = seq[linker2_start - BARCODE_LEN:linker2_start]
@@ -219,9 +219,9 @@ def extract_barcode(seq, qual, linker2_start, linker2_end, linker1_end):
 
 
 def correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map):
-    """Use global maps built from whitelists; return corrected 16bp or None."""
-    bcB = barcode[:8]
-    bcA = barcode[8:]
+    """Use global maps built from whitelists; return corrected barcode or None."""
+    bcB = barcode[:BARCODE_LEN]
+    bcA = barcode[BARCODE_LEN:]
     bcA_cor = barcodeA_correction_map.get(bcA, None)
     if bcA_cor is None:
         return None
@@ -259,8 +259,10 @@ class BarcodeConfig:
         self.bc_max_dist = bc_max_dist
 
 
-def init_worker(match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map):
-    global WORKER_CONTEXT
+def init_worker(match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map, barcode_len, umi_len):
+    global WORKER_CONTEXT, BARCODE_LEN, UMI_LEN
+    BARCODE_LEN = barcode_len
+    UMI_LEN = umi_len
     WORKER_CONTEXT = {
         "match_config": match_config,
         "linker1_mm": linker1_mm,
@@ -298,7 +300,7 @@ def process_read_batch(batch, context=None):
             barcode, umi, barcode_q, umi_q = extract_barcode(r1_seq, r1_qual, linker2_start, linker2_end, linker1_end)
             if correct_barcode:
                 barcode = correct_barcode_with_correction_map(barcode, barcodeA_correction_map, barcodeB_correction_map)
-            if barcode is not None and len(barcode) == 16 and len(umi) == 10:
+            if barcode is not None and len(barcode) == 2 * BARCODE_LEN and len(umi) == UMI_LEN:
                 n_reads_passed += 1
                 r1_records.append(format_seqrecord_fastq(r1_id, barcode + umi, barcode_q + umi_q))
                 r2_records.append(format_seqrecord_fastq(r2_id, r2_seq, r2_qual))
@@ -322,7 +324,15 @@ def write_batch_result(result, out_r1, out_r2):
     out_r2.writelines(result.r2_records)
 
 
-def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level, correct_barcode, cores=1, batch_size=DEFAULT_BATCH_SIZE, gzip_output=True):
+def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compression_level, correct_barcode, cores=1, batch_size=DEFAULT_BATCH_SIZE, gzip_output=True, cb_len=None, umi_len=None):
+
+    global BARCODE_LEN, UMI_LEN
+    if not isinstance(cb_len, int) or isinstance(cb_len, bool) or cb_len <= 0 or cb_len % 2 != 0:
+        raise ValueError("cb_len must be a positive even integer")
+    if not isinstance(umi_len, int) or isinstance(umi_len, bool) or umi_len <= 0:
+        raise ValueError("umi_len must be a positive integer")
+    BARCODE_LEN = cb_len // 2
+    UMI_LEN = umi_len
 
     exact_match_stats = [0, 0, 0]
     fuzzy_match_stats = [0, 0, 0]
@@ -345,6 +355,8 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
         print("Output compression: none. This uses more disk space but can speed up preprocessing.")
     print(f"Barcode extraction cores: {cores}.")
     print(f"Barcode extraction batch size: {batch_size}.")
+    print(f"Cell barcode length: {cb_len} bp ({BARCODE_LEN} bp per component).")
+    print(f"UMI length: {UMI_LEN} bp.")
 
     if correct_barcode:
         print("Buliding barcode correction maps...")
@@ -388,7 +400,7 @@ def main(match_config, barcode_config, reads1, reads2, output_dir, sample, compr
                 progress.update(1)
                 progress.set_postfix(reads=n_reads, passed=n_reads_passed)
         else:
-            initargs = (match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map)
+            initargs = (match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map, BARCODE_LEN, UMI_LEN)
             max_pending = max(cores * 2, 1)
             with ProcessPoolExecutor(max_workers=cores, initializer=init_worker, initargs=initargs) as executor:
                 pending = {}
@@ -457,6 +469,8 @@ if __name__ == '__main__':
     argparser.add_argument('-c', '--cores', type = int, default = 1, help = 'Number of worker processes for barcode extraction')
     argparser.add_argument('--batch_size', type = int, default = DEFAULT_BATCH_SIZE, help = 'Number of read pairs per worker batch')
     argparser.add_argument('--gzip_output', type=str_to_bool, default=True, help='Whether to gzip barcode FASTQ output. False uses more disk space but can be faster.')
+    argparser.add_argument('--cb_len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
+    argparser.add_argument('--umi_len', type=int, required=True, help='UMI length in bp')
 
     args = argparser.parse_args()
 
@@ -479,4 +493,4 @@ if __name__ == '__main__':
     match_config = MatchConfig(linker1, linker2, mm_rate)
     barcode = BarcodeConfig(barcodeA_whitelist, barcodeB_whitelist, bc_max_dist)
 
-    main(match_config, barcode, reads1, reads2, output_dir, sample, compression_level, correct_barcode, args.cores, args.batch_size, args.gzip_output)
+    main(match_config, barcode, reads1, reads2, output_dir, sample, compression_level, correct_barcode, args.cores, args.batch_size, args.gzip_output, args.cb_len, args.umi_len)

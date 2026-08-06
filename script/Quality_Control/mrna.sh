@@ -193,7 +193,9 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
             -c "$preprocess_cores" \
             -bs "$preprocess_batch_size" \
             -go "$gzip_output" \
-            -bmd "$bc_max_dist" 2>&1 | tee "$step1_log" || {
+            -bmd "$bc_max_dist" \
+            -bl "$soloCBlen" \
+            -ul "$soloUMIlen" 2>&1 | tee "$step1_log" || {
                 echo "Error: preprocessing failed for $sample_name; see $step1_log" >&2
                 exit 1
             }
@@ -305,6 +307,7 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     fi
     run_pixi python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
         -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
+        --cb-len "$soloCBlen" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \
         --pixel_length "$pixel_length" 2>&1 | tee "$final_results/Solo.out/qc.log" || {

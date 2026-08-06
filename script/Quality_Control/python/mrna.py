@@ -9,7 +9,9 @@ import argparse
 darlin = ['CA', 'RA', 'TA']
 method = ['raw']
 
-def mrna(config, file_path, whitelist_path, umi_min, gene_min, min_cells):
+def mrna(config, file_path, whitelist_path, cb_len, umi_min, gene_min, min_cells):
+    if cb_len <= 0 or cb_len % 2 != 0:
+        raise ValueError('cb_len must be a positive even integer')
     if os.path.isdir(file_path + '/' + 'GeneFull' ):
         data_path = file_path + '/' + 'GeneFull' 
     elif os.path.isdir(file_path + '/' + 'Gene' ):
@@ -24,12 +26,12 @@ def mrna(config, file_path, whitelist_path, umi_min, gene_min, min_cells):
         m_path = data_path + '/' + m
         adata = plot_violin(m_path, filter_mode, umi_min, gene_min, min_cells)
         bdata = adata.copy()
-        csv_path = plot_cluster(bdata, whitelist_path, m_path, config)
-        plot_heatmap(csv_path, whitelist_path, m_path)
+        csv_path = plot_cluster(bdata, whitelist_path, m_path, config, cb_len)
+        plot_heatmap(csv_path, whitelist_path, m_path, cb_len)
         for d in darlin:
             try:
-                darlin_file = extract(adata, m_path, whitelist_path, d)
-                plot_heatmap(darlin_file, whitelist_path, f'{m_path}/{d}')
+                darlin_file = extract(adata, m_path, whitelist_path, d, cb_len)
+                plot_heatmap(darlin_file, whitelist_path, f'{m_path}/{d}', cb_len)
             except:
                 print(f'No {d} data found')
 
@@ -37,6 +39,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Plot mRNA data')
     parser.add_argument('-f', '--file_path', type=str, help='Path to directory containing GeneFull or Gene folder', required=True)
     parser.add_argument('-w', '--whitelist_path', type=str, help='Path to whitelist file', required=True)
+    parser.add_argument('--cb-len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
     parser.add_argument('-umi_min', '--umi_min', type=int, default=900, help='Minimum UMI count per spot')
     parser.add_argument('-gene_min', '--gene_min', type=int, default=300, help='Minimum gene count per spot')
     parser.add_argument('-min_cells', '--min_cells', type=int, default=3, help='Minimum number of cells per gene')
@@ -47,4 +50,4 @@ if __name__ == '__main__':
     parser.add_argument('--pixel_length', type=float, default=0.294, help='Length of each pixel in microns')
     args = parser.parse_args()
     config = PlotConfig(args.x_spots_number, args.y_spots_number, args.length_spot, args.interval, args.pixel_length)
-    mrna(config, args.file_path, args.whitelist_path, args.umi_min, args.gene_min, args.min_cells)
+    mrna(config, args.file_path, args.whitelist_path, args.cb_len, args.umi_min, args.gene_min, args.min_cells)

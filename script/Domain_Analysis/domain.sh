@@ -20,7 +20,7 @@ REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 R_SCRIPT="$SCRIPT_DIR/R/spacexr.R"
 PYTHON_SCRIPT="$SCRIPT_DIR/python/banksy_cluster.py"
 RCTD_PLOT_SCRIPT="$SCRIPT_DIR/python/rctd_visualize.py"
-MERGE_SCRIPT="$REPO_DIR/script/Quality_Control/python/image_process/merge_on_gray.py"
+MERGE_SCRIPT="$REPO_DIR/script/Quality_Control/python/merge_on_gray.py"
 CHIP_FILE="$REPO_DIR/config/chip.sh"
 
 if [[ ! -f "$CHIP_FILE" ]]; then

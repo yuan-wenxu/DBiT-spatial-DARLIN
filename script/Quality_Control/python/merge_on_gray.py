@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 
 from PIL import Image, ImageOps
-Image.MAX_IMAGE_PIXELS = None 
+Image.MAX_IMAGE_PIXELS = None
 
 ORIENTATION_CHOICES = ("normal", "horizontal", "vertical", "rotate")
 DOWNSAMPLE_FACTOR = 10

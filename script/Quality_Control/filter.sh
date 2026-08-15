@@ -19,7 +19,7 @@ EOF
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
-MERGE_SCRIPT="$PYTHON_DIR/image_process/merge_on_gray.py"
+MERGE_SCRIPT="$PYTHON_DIR/merge_on_gray.py"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
 if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi

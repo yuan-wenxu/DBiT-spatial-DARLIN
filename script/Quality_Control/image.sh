@@ -18,6 +18,8 @@ EOF
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
+SEGMENT_SCRIPT="$PYTHON_DIR/image_segment.py"
+FILTER_SCRIPT="$PYTHON_DIR/image_filter.py"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
 if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
@@ -111,6 +113,10 @@ if [ ! -d "$pixi_env_dir" ]; then
     echo "Error: pixi environment dir does not exist: $pixi_env_dir" >&2
     exit 1
 fi
+if [[ ! -f "$SEGMENT_SCRIPT" || ! -f "$FILTER_SCRIPT" ]]; then
+    echo "Error: image processing script is missing." >&2
+    exit 1
+fi
 
 if [ -n "$scratch" ]; then
     scratch_run_dir="$scratch/dbit/$run_id/image"
@@ -124,27 +130,30 @@ else
     run_result_path="$result_path"
 fi
 
-run_pixi python "$PYTHON_DIR/stardist_segment.py" \
-  -ip "$run_image_path" \
-  -r "$run_result_path" \
-  --x_spots_number $x_spots_number \
-  --y_spots_number $y_spots_number \
-  --length_spot $length_spot \
-  --interval $interval \
-  --pixel_length $pixel_length \
-  --put_text $put_text \
-  --font_size $font_size \
-  --top_value $top_value \
-  --number_of_top_values $number_of_top_values \
-  -m $model_name \
-  -pt $prob_thresh \
-  -nt $nms_thresh \
-  --orientation "$orientation" \
-  $([ "$swap_xy" = True ] && printf %s --swap_xy) || exit 1
+segment_args=(
+    python "$SEGMENT_SCRIPT"
+    --image_path "$run_image_path"
+    --result_path "$run_result_path"
+    --x_spots_number "$x_spots_number"
+    --y_spots_number "$y_spots_number"
+    --length_spot "$length_spot"
+    --interval "$interval"
+    --pixel_length "$pixel_length"
+    --put_text "$put_text"
+    --font_size "$font_size"
+    --top_value "$top_value"
+    --number_of_top_values "$number_of_top_values"
+    --model_name "$model_name"
+    --prob_thresh "$prob_thresh"
+    --nms_thresh "$nms_thresh"
+    --orientation "$orientation"
+)
+[[ "$swap_xy" == True ]] && segment_args+=(--swap_xy)
+run_pixi "${segment_args[@]}" || exit 1
 
-run_pixi python "$PYTHON_DIR/cell_filter.py" \
-  -f "$run_result_path" \
-  -c $cutoff || exit 1
+run_pixi python "$FILTER_SCRIPT" \
+    --file_path "$run_result_path" \
+    --cutoff "$cutoff" || exit 1
 
 if [ -n "$scratch" ]; then
     cp -r "$scratch_run_dir/result"/* "$result_path/"

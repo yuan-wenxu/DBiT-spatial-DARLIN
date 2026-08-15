@@ -240,12 +240,14 @@ Main steps:
 Implementation files:
 
 ```text
-script/Quality_Control/python/stardist_segment.py
-script/Quality_Control/python/image_process/tissue_mask.py
-script/Quality_Control/python/image_process/split.py
-script/Quality_Control/python/image_process/stardist_predict.py
-script/Quality_Control/python/cell_filter.py
+script/Quality_Control/python/image_segment.py
+script/Quality_Control/python/image_filter.py
 ```
+
+`image_segment.py` contains tissue-mask generation, DBiT-grid image splitting,
+StarDist prediction, and the raw per-spot segmentation summary.
+`image_filter.py` is a separate stage that applies the cell-area cutoff and
+writes the retained cell count for every spot.
 
 Important outputs:
 

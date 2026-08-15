@@ -70,11 +70,6 @@ if [ -z "$mrna_dir" ] && [ -z "$amp_dir" ]; then
     echo "Error: at least one of mrna_dir or amp_dir must be set in config" >&2
     exit 1
 fi
-if [ -n "$amp_dir" ] && [ -z "$whitelist_path" ]; then
-    echo "Error: whitelist_path is required when amp_dir is set" >&2
-    exit 1
-fi
-
 if [ -n "$mrna_dir" ]; then
     mrna_dir=$(normalize_dir_path "$mrna_dir")
 fi
@@ -106,8 +101,8 @@ if [ -n "$mrna_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
         pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_filter.py" \
-            -c "$cell_number_file" \
-            -d "$mrna_dir" \
+            --cell_number_file "$cell_number_file" \
+            --data_path "$mrna_dir" \
             --x_spots_number "$x_spots_number" \
             --y_spots_number "$y_spots_number" \
             --length_spot "$length_spot" \
@@ -126,10 +121,8 @@ if [ -n "$amp_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
         pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_filter.py" \
-            -c "$cell_number_file" \
-            -d "$amp_dir" \
-            -w "$whitelist_path" \
-            --cb-len "$sb_len" \
+            --cell_number_file "$cell_number_file" \
+            --darlin_path "$amp_dir" \
             --x_spots_number "$x_spots_number" \
             --y_spots_number "$y_spots_number" \
             --length_spot "$length_spot" \

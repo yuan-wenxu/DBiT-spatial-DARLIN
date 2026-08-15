@@ -6,13 +6,65 @@ import pandas as pd
 from utils import (
     ScatterConfig,
     SpatialPlotConfig,
-    add_spatial_coordinates,
     load_cell_numbers,
     merge_tissue_spots,
     plot_scatter,
     plot_spatial_frames,
-    validate_barcode_length,
 )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot amplicon data after filtering spots outside tissue.",
+        add_help=False,
+    )
+    parser.add_argument(
+        "--help",
+        action="help",
+        help="Show this help message and exit",
+    )
+    parser.add_argument(
+        "--cell_number_file",
+        type=str,
+        help="Cell number file",
+    )
+    parser.add_argument(
+        "--darlin_path",
+        type=str,
+        help="DARLIN data directory",
+    )
+    parser.add_argument(
+        "--x_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in x direction",
+    )
+    parser.add_argument(
+        "--y_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in y direction",
+    )
+    parser.add_argument(
+        "--length_spot",
+        type=int,
+        default=20,
+        help="Length of each spot in pixels",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=20,
+        help="Interval between spots in pixels",
+    )
+    parser.add_argument(
+        "--pixel_length",
+        type=float,
+        default=0.294,
+        help="Length of each pixel in microns",
+    )
+    return parser.parse_args()
+
 
 DARLIN_LOCI = ("CA", "RA", "TA")
 
@@ -21,11 +73,8 @@ def filter_amplicon_by_tissue(
     cell_number_file,
     darlin_path,
     umi_config,
-    whitelist_path,
     plot_config,
-    cb_len,
 ):
-    validate_barcode_length(cb_len)
     cell_number = load_cell_numbers(cell_number_file)
     darlin_path = Path(darlin_path)
     for locus in DARLIN_LOCI:
@@ -33,9 +82,13 @@ def filter_amplicon_by_tissue(
         darlin_file = locus_path / "final.csv"
         if darlin_file.exists():
             darlin_data = pd.read_csv(darlin_file)
-            darlin_data = add_spatial_coordinates(
-                darlin_data, "SR", whitelist_path, cb_len
-            )
+            missing_coordinates = {"x", "y"}.difference(darlin_data.columns)
+            if missing_coordinates:
+                raise ValueError(
+                    f"{darlin_file} is missing spatial coordinate columns: "
+                    f"{sorted(missing_coordinates)}. Rerun the amplicon step "
+                    "to regenerate final.csv."
+                )
             merge_data = merge_tissue_spots(darlin_data, cell_number)
             merge_data.to_csv(locus_path / "tissuefiltered.csv", index=False)
 
@@ -61,22 +114,12 @@ def filter_amplicon_by_tissue(
         else:
             print(f'{darlin_file} does not exist.')
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Plot amplicon data after filtering spots outside tissue.')
-    parser.add_argument('-c', '--cell_number_file', type=str, help='cell number file')
-    parser.add_argument('-d', '--darlin_path', type=str, help='data path')
-    parser.add_argument('-w', '--whitelist_path', type=str, help='whitelist file')
-    parser.add_argument('--cb-len', type=int, required=True, help='Total concatenated cell-barcode length in bp')
-    parser.add_argument('--x_spots_number', type=int, default=50, help='Number of spots in x direction')
-    parser.add_argument('--y_spots_number', type=int, default=50, help='Number of spots in y direction')
-    parser.add_argument('--length_spot', type=int, default=20, help='Length of each spot in pixels')
-    parser.add_argument('--interval', type=int, default=20, help='Interval between spots in pixels')
-    parser.add_argument('--pixel_length', type=float, default=0.294, help='Length of each pixel in microns')
-    args = parser.parse_args()
+
+def main():
+    args = parse_args()
 
     cell_number_file = args.cell_number_file
     darlin_path = args.darlin_path
-    whitelist_path = args.whitelist_path
     x_spots_number = args.x_spots_number
     y_spots_number = args.y_spots_number
     length_spot = args.length_spot
@@ -90,7 +133,9 @@ if __name__ == '__main__':
         cell_number_file,
         darlin_path,
         umi_config,
-        whitelist_path,
         frame_config,
-        args.cb_len,
     )
+
+
+if __name__ == "__main__":
+    main()

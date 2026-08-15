@@ -89,7 +89,8 @@ Important parameters:
 
 - `linker1`, `linker2`: expected linker sequences.
 - `mm_rate`: mismatch rate for linker matching.
-- `bc_max_dist`: maximum barcode correction distance.
+- Barcode correction accepts exact whitelist matches and unambiguous
+  single-substitution matches (fixed Hamming distance of 1).
 - `gzip_output`: whether preprocessing output is gzipped immediately.
 - `gzip_after_preprocess`: whether uncompressed preprocessing output is compressed after extraction.
 
@@ -123,8 +124,7 @@ STAR outputs are written under:
 <output_path>/results/Solo.out/GeneFull/
 ```
 
-When incomplete STAR outputs are cleaned before a rerun, `results/deconv/` is
-preserved and only the other top-level contents of `results/` are removed.
+When incomplete STAR outputs are cleaned before a rerun.
 
 ### 3.3 mRNA QC and Clustering
 
@@ -319,6 +319,8 @@ script/Quality_Control/python/amplicon.py
 
 The same script contains the amplicon-specific FASTQ parsing, barcode/UMI/LR
 correction, QC plotting, `final.csv` output, and spatial heatmap generation.
+Barcode A and barcode B whitelist files are passed separately; SB sequences
+are interpreted in B+A order, with A mapped to x and B mapped to y.
 
 The correction workflow:
 
@@ -344,6 +346,8 @@ Important columns:
 - `reads_fraction`: LR fraction within an SR/UR group
 - `k`: SR-level reads-per-UMI slope
 - `n_LR`: number of unique LR values within an SR
+- `xbc`, `ybc`: corrected barcode A/B components
+- `x`, `y`: zero-based spatial coordinates derived from the A/B whitelists
 
 Important outputs per locus:
 
@@ -359,7 +363,9 @@ amplicon/results/<CA|RA|TA>/
 └── sr_reads_vs_umis.png
 ```
 
-`final.csv` is the main per-locus clone-call table used by downstream tissue-filtered plotting.
+`final.csv` is the main per-locus clone-call table used by downstream
+tissue-filtered plotting. Spatial coordinates are written during amplicon
+processing, so the later filtering step does not need a barcode whitelist.
 
 ## 6. Tissue-Filtered Visualization
 
@@ -381,7 +387,6 @@ config; the `filter` step does not accept `--input` or `--chip`:
 - `mrna_dir`: STARsolo `GeneFull` directory
 - `amp_dir`: amplicon result directory
 - `gray_path`: grayscale image for merged overlays
-- the barcode whitelist is selected automatically from the stored chip
 
 For mRNA data, the script calls:
 

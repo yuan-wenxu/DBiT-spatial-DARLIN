@@ -41,26 +41,22 @@ def read_whitelist(whitelist_path):
     return set(read_nonempty_lines(whitelist_path))
 
 
-def build_barcode_correction_map(whitelist, max_dist):
-    """
-    Build O(1) lookup map for barcode correction.
-    For max_dist=1: enumerate all single-substitution neighbors.
-    """
+def build_barcode_correction_map(whitelist):
+    """Map exact and unambiguous single-substitution barcodes to the whitelist."""
     correction_map = {}
     for bc in whitelist:
         correction_map[bc] = bc
-    if max_dist >= 1:
-        for correct in whitelist:
-            for pos in range(len(correct)):
-                orig = correct[pos]
-                for base in 'ATCG':
-                    if base == orig:
-                        continue
-                    err = correct[:pos] + base + correct[pos+1:]
-                    if err not in correction_map:
-                        correction_map[err] = correct
-                    elif correction_map[err] != correct:
-                        correction_map[err] = None
+    for correct in whitelist:
+        for pos in range(len(correct)):
+            orig = correct[pos]
+            for base in 'ATCG':
+                if base == orig:
+                    continue
+                err = correct[:pos] + base + correct[pos+1:]
+                if err not in correction_map:
+                    correction_map[err] = correct
+                elif correction_map[err] != correct:
+                    correction_map[err] = None
     # drop ambiguous
     return {k: v for k, v in correction_map.items() if v is not None}
 
@@ -221,10 +217,9 @@ class MatchConfig:
 
 class BarcodeConfig:
     # barcode correction config
-    def __init__(self, barcodeA_whitelist, barcodeB_whitelist, bc_max_dist):
+    def __init__(self, barcodeA_whitelist, barcodeB_whitelist):
         self.barcodeA_whitelist = barcodeA_whitelist
         self.barcodeB_whitelist = barcodeB_whitelist
-        self.bc_max_dist = bc_max_dist
 
 
 def init_worker(match_config, linker1_mm, linker2_mm, correct_barcode, barcodeA_correction_map, barcodeB_correction_map, barcode_len, umi_len):
@@ -333,8 +328,8 @@ def extract_umi_barcode(match_config, barcode_config, reads1, reads2, output_dir
         print(f"Barcode A whitelist size: {len(bcA_wl)}")
         print(f"Barcode B whitelist size: {len(bcB_wl)}")
         print(f"Total combination {len(bcA_wl) * len(bcB_wl)}")
-        barcodeA_correction_map = build_barcode_correction_map(bcA_wl, max_dist = barcode_config.bc_max_dist)
-        barcodeB_correction_map = build_barcode_correction_map(bcB_wl, max_dist = barcode_config.bc_max_dist)
+        barcodeA_correction_map = build_barcode_correction_map(bcA_wl)
+        barcodeB_correction_map = build_barcode_correction_map(bcB_wl)
     else:
         print("Skipping barcode correction.")
         barcodeA_correction_map = {}
@@ -456,24 +451,26 @@ def run_preprocess(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Preprocess FASTQ files")
-    parser.add_argument("-r1", "--reads1", required=True, help="Path to R1 FASTQ")
-    parser.add_argument("-r2", "--reads2", required=True, help="Path to R2 FASTQ")
-    parser.add_argument("-o", "--output", required=True, help="Output directory")
-    parser.add_argument("-c", "--core", type=int, default=8, help="Number of worker processes")
-    parser.add_argument("-s", "--sample", required=True, help="Sample name")
-    parser.add_argument("-cl", "--compression_level", type=int, default=6, help="Gzip compression level")
-    parser.add_argument("-bs", "--batch_size", type=int, default=DEFAULT_BATCH_SIZE, help="Read pairs per worker batch")
-    parser.add_argument("-go", "--gzip_output", type=str_to_bool, default=True, help="Compress extracted FASTQs")
-    parser.add_argument("-l1", "--linker1", default="GTGGCCGATGTTTCGCATCGGCGTACGACT", help="Linker 1 sequence")
-    parser.add_argument("-l2", "--linker2", default="ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help="Linker 2 sequence")
-    parser.add_argument("-m", "--mm_rate", type=float, default=0.05, help="Linker mismatch rate")
-    parser.add_argument("-b1", "--barcodeA_whitelist", help="Barcode A whitelist")
-    parser.add_argument("-b2", "--barcodeB_whitelist", help="Barcode B whitelist")
-    parser.add_argument("-bmd", "--bc_max_dist", type=int, default=1, help="Maximum barcode correction distance")
-    parser.add_argument("-cb", "--correct_barcode", type=str_to_bool, default=False, help="Correct barcodes")
-    parser.add_argument("-bl", "--cb_len", type=int, required=True, help="Concatenated cell-barcode length")
-    parser.add_argument("-ul", "--umi_len", type=int, required=True, help="UMI length")
+    parser = argparse.ArgumentParser(
+        description="Preprocess FASTQ files", add_help=False
+    )
+    parser.add_argument("--help", action="help", help="Show this help message and exit")
+    parser.add_argument("--reads1", required=True, help="Path to R1 FASTQ")
+    parser.add_argument("--reads2", required=True, help="Path to R2 FASTQ")
+    parser.add_argument("--output", required=True, help="Output directory")
+    parser.add_argument("--core", type=int, default=8, help="Number of worker processes")
+    parser.add_argument("--sample", required=True, help="Sample name")
+    parser.add_argument("--compression_level", type=int, default=6, help="Gzip compression level")
+    parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE, help="Read pairs per worker batch")
+    parser.add_argument("--gzip_output", type=str_to_bool, default=True, help="Compress extracted FASTQs")
+    parser.add_argument("--linker1", default="GTGGCCGATGTTTCGCATCGGCGTACGACT", help="Linker 1 sequence")
+    parser.add_argument("--linker2", default="ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help="Linker 2 sequence")
+    parser.add_argument("--mm_rate", type=float, default=0.05, help="Linker mismatch rate")
+    parser.add_argument("--barcodeA_whitelist", help="Barcode A whitelist")
+    parser.add_argument("--barcodeB_whitelist", help="Barcode B whitelist")
+    parser.add_argument("--correct_barcode", type=str_to_bool, default=False, help="Correct barcodes")
+    parser.add_argument("--cb_len", type=int, required=True, help="Concatenated cell-barcode length")
+    parser.add_argument("--umi_len", type=int, required=True, help="UMI length")
     return parser.parse_args()
 
 
@@ -484,7 +481,6 @@ def main():
         BarcodeConfig(
             args.barcodeA_whitelist,
             args.barcodeB_whitelist,
-            args.bc_max_dist,
         ),
         args.reads1,
         args.reads2,

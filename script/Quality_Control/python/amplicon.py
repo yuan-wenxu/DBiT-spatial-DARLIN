@@ -16,12 +16,164 @@ from tqdm import tqdm
 from umi_tools import UMIClusterer
 
 from utils import (
+    add_spatial_coordinates,
     iter_fastq,
     iter_paired_fastq,
     open_text,
     plot_spatial_heatmaps,
-    read_nonempty_lines,
+    read_barcode_components,
 )
+
+
+def str_to_bool(value):
+    """Convert common command-line boolean strings to bool."""
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    if value.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Convert extracted SB/UB and lineage barcode FASTQs to a DARLIN clone table.",
+        add_help=False,
+    )
+    parser.add_argument("--help", action="help", help="Show this help message and exit")
+    parser.add_argument(
+        "--darlin_reads",
+        dest="lineage_bc_fq",
+        help="FASTQ(.gz) with DARLIN/lineage barcode sequences.",
+    )
+    parser.add_argument(
+        "--barcode_umi_reads",
+        dest="sb_ub_fq",
+        required=True,
+        help="FASTQ(.gz) with SB+UB sequences.",
+    )
+    parser.add_argument(
+        "--darlin",
+        type=str_to_bool,
+        default=True,
+        help="Whether DARLIN/lineage barcode sequences are available.",
+    )
+    parser.add_argument(
+        "--output_path",
+        required=True,
+        type=str,
+        help="Output directory for final.csv and QC plots.",
+    )
+    parser.add_argument(
+        "--barcodeA_whitelist",
+        required=True,
+        help="TSV/text file with one barcode A sequence per line.",
+    )
+    parser.add_argument(
+        "--barcodeB_whitelist",
+        required=True,
+        help="TSV/text file with one barcode B sequence per line.",
+    )
+    parser.add_argument(
+        "--sb-len",
+        dest="sb_len",
+        type=int,
+        required=True,
+        help="Length of concatenated spot barcode.",
+    )
+    parser.add_argument(
+        "--ub-len", type=int, required=True, help="Length of UMI barcode."
+    )
+    parser.add_argument(
+        "--x-spots-number",
+        "--x_spots_number",
+        dest="x_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in x direction.",
+    )
+    parser.add_argument(
+        "--y-spots-number",
+        "--y_spots_number",
+        dest="y_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in y direction.",
+    )
+    parser.add_argument(
+        "--umi_hd_threshold",
+        type=int,
+        default=1,
+        help="Hamming-distance threshold for UMI correction within each SR.",
+    )
+    parser.add_argument(
+        "--min-lb-len",
+        type=int,
+        default=20,
+        help="Minimum lineage barcode length.",
+    )
+    parser.add_argument(
+        "--initial-reads-cutoff",
+        type=int,
+        default=100,
+        help="Minimum reads per raw LB/SB/UB molecule.",
+    )
+    parser.add_argument(
+        "--lb-error-rate",
+        dest="lb_error_rate",
+        type=float,
+        default=0.01,
+        help="Lineage barcode correction error rate.",
+    )
+    parser.add_argument(
+        "--lb-min-hd",
+        type=int,
+        default=1,
+        help="Minimum HD threshold for lineage barcode correction.",
+    )
+    parser.add_argument(
+        "--major-fraction-threshold-molecule",
+        dest="major_fraction_threshold_molecule",
+        type=float,
+        default=0.8,
+        help="Minimum major LR fraction per SR/UR.",
+    )
+    parser.add_argument(
+        "--reads-fraction-mode",
+        dest="reads_fraction_mode",
+        choices=("sum", "max"),
+        default="sum",
+        help="Denominator for major LR filtering within each SR/UR group.",
+    )
+    parser.add_argument(
+        "--slope-cutoff",
+        dest="slope_cutoff",
+        type=float,
+        default=10,
+        help="Minimum reads/UMIs per SR.",
+    )
+    parser.add_argument(
+        "--final-reads-cutoff",
+        dest="final_reads_cutoff",
+        type=int,
+        default=10,
+        help="Minimum reads per final SR/UR/LR row.",
+    )
+    args = parser.parse_args()
+
+    if args.darlin and not args.lineage_bc_fq:
+        parser.error(
+            "amplicon.py requires --darlin_reads when --darlin is True."
+        )
+    if args.sb_len <= 0 or args.sb_len % 2 != 0:
+        parser.error("--sb-len must be a positive even integer.")
+    if args.ub_len <= 0:
+        parser.error("--ub-len must be a positive integer.")
+
+    args.output_path = Path(args.output_path)
+    args.output_path.mkdir(parents=True, exist_ok=True)
+    return args
 
 
 def hamming_dist(first, second):
@@ -48,9 +200,15 @@ def collapse_within_hd(items, max_hd):
     return parent
 
 
-def read_whitelist(whitelist_file):
-    components = read_nonempty_lines(whitelist_file)
-    return {first + second for first in components for second in components}
+def build_spot_whitelist(barcode_a_whitelist, barcode_b_whitelist):
+    """Build valid concatenated SBs in their observed B+A sequence order."""
+    barcode_as = read_barcode_components(barcode_a_whitelist)
+    barcode_bs = read_barcode_components(barcode_b_whitelist)
+    return {
+        barcode_b + barcode_a
+        for barcode_b in barcode_bs
+        for barcode_a in barcode_as
+    }
 
 
 def neighbors_hd1(sequence):
@@ -248,17 +406,6 @@ def plot_lr_per_sr(data, output_file):
     finish_plot(figure, output_file)
 
 
-def str_to_bool(value):
-    """Convert common command-line boolean strings to bool."""
-    if isinstance(value, bool):
-        return value
-    if value.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    if value.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value}")
-
-
 def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len, ub_len):
     """Read amplicon-specific SB/UB and optional lineage FASTQs."""
     if sb_len <= 0 or ub_len <= 0:
@@ -308,102 +455,6 @@ def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len, ub_len):
     return pd.DataFrame(rows, columns=["SB", "UB"])
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Convert extracted SB/UB and lineage barcode FASTQs to a DARLIN clone table."
-    )
-    parser.add_argument(
-        "-dr",
-        "--darlin_reads",
-        dest="lineage_bc_fq",
-        help="FASTQ(.gz) with DARLIN/lineage barcode sequences.",
-    )
-    parser.add_argument(
-        "-bu",
-        "--barcode_umi_reads",
-        "--bc_umi_reads",
-        dest="sb_ub_fq",
-        required=True,
-        help="FASTQ(.gz) with SB+UB sequences.",
-    )
-    parser.add_argument(
-        "-d",
-        "--darlin",
-        type=str_to_bool,
-        default=True,
-        help="Whether DARLIN/lineage barcode sequences are available.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output_path",
-        required=True,
-        type=str,
-        help="Output directory for final.csv and QC plots.",
-    )
-    parser.add_argument("--whitelist", help="Optional TSV/text file with one DBiT barcode per line for SB correction.")
-    parser.add_argument("--sb-len", dest="sb_len", type=int, required=True, help="Length of concatenated spot barcode.")
-    parser.add_argument("--ub-len", type=int, required=True, help="Length of UMI barcode.")
-    parser.add_argument("--x-spots-number", "--x_spots_number", dest="x_spots_number", type=int, default=50, help="Number of spots in x direction.")
-    parser.add_argument("--y-spots-number", "--y_spots_number", dest="y_spots_number", type=int, default=50, help="Number of spots in y direction.")
-    parser.add_argument("--umi_hd_threshold", type=int, default=1, help="Hamming-distance threshold for UMI correction within each SR.")
-    parser.add_argument("--min-lb-len", type=int, default=20, help="Minimum lineage barcode length.")
-    parser.add_argument(
-        "--initial-reads-cutoff",
-        type=int,
-        default=100,
-        help="Minimum reads per raw LB/SB/UB molecule.",
-    )
-    parser.add_argument(
-        "--lb-error-rate",
-        dest="lb_error_rate",
-        type=float,
-        default=0.01,
-        help="Lineage barcode correction error rate.",
-    )
-    parser.add_argument("--lb-min-hd", type=int, default=1, help="Minimum HD threshold for lineage barcode correction.")
-    parser.add_argument(
-        "--major-fraction-threshold-molecule",
-        dest="major_fraction_threshold_molecule",
-        type=float,
-        default=0.8,
-        help="Minimum major LR fraction per SR/UR.",
-    )
-    parser.add_argument(
-        "--reads-fraction-mode",
-        dest="reads_fraction_mode",
-        choices=("sum", "max"),
-        default="sum",
-        help="Denominator for major LR filtering within each SR/UR group.",
-    )
-    parser.add_argument(
-        "--slope-cutoff",
-        dest="slope_cutoff",
-        type=float,
-        default=10,
-        help="Minimum reads/UMIs per SR.",
-    )
-    parser.add_argument(
-        "--final-reads-cutoff",
-        dest="final_reads_cutoff",
-        type=int,
-        default=10,
-        help="Minimum reads per final SR/UR/LR row.",
-    )
-    args = parser.parse_args()
-
-    if args.darlin and not args.lineage_bc_fq:
-        parser.error("amplicon.py requires -dr/--darlin_reads when -d/--darlin is True.")
-    if args.sb_len <= 0 or args.sb_len % 2 != 0:
-        parser.error("--sb-len must be a positive even integer.")
-    if args.ub_len <= 0:
-        parser.error("--ub-len must be a positive integer.")
-
-    args.output_path = Path(args.output_path)
-    args.output_path.mkdir(parents=True, exist_ok=True)
-
-    return args
-
-
 def summarize(df, label):
     summary = {
         "reads": int(df["reads"].sum()) if "reads" in df.columns else int(len(df)),
@@ -416,11 +467,11 @@ def summarize(df, label):
     print("\n")
 
 
-def apply_sb_correction(df, whitelist):
-    if whitelist is None:
-        raise ValueError("whitelist is required for SB correction")
-    if isinstance(whitelist, (str, Path)):
-        whitelist = read_whitelist(whitelist)
+def apply_sb_correction(df, barcode_a_whitelist, barcode_b_whitelist):
+    whitelist = build_spot_whitelist(
+        barcode_a_whitelist,
+        barcode_b_whitelist,
+    )
     observed_whitelist = whitelist & set(df["SB"].unique())
     print(f"Number of whitelist SBs: {len(whitelist):,}")
     print(f"Observed whitelist SBs: {len(observed_whitelist):,}")
@@ -461,7 +512,11 @@ def process(args):
     df.sort_values(by="reads", ascending=False, inplace=True)
     summarize(df, summarize_label)
 
-    df = apply_sb_correction(df, args.whitelist)
+    df = apply_sb_correction(
+        df,
+        args.barcodeA_whitelist,
+        args.barcodeB_whitelist,
+    )
     df = correct_umis(df, max_hd=args.umi_hd_threshold)
 
     if use_lineage:
@@ -508,12 +563,20 @@ def process(args):
         df_final["n_LR"] = df_final.groupby("SR")["LR"].transform("nunique")
         plot_lr_per_sr(df_final, plot_dir / "lr_per_sr_hist.png")
 
+    df_final = add_spatial_coordinates(
+        df_final,
+        "SR",
+        args.barcodeA_whitelist,
+        args.sb_len,
+        barcode_b_whitelist_path=args.barcodeB_whitelist,
+    )
     out_final = args.output_path / "final.csv"
     df_final.to_csv(out_final, index=False)
     print(f"Wrote final table: {out_final.resolve()}")
     plot_spatial_heatmaps(
         out_final,
-        args.whitelist,
+        args.barcodeA_whitelist,
+        args.barcodeB_whitelist,
         args.output_path,
         args.sb_len,
         args.x_spots_number,

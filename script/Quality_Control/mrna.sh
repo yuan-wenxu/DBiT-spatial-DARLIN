@@ -181,17 +181,19 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         fi
 
         run_pixi python "$PYTHON_DIR/preprocess.py" \
-            -r1 "$step1_r1" -r2 "$step1_r2" \
-            -o "$step1_out" -s "$sample_name" \
-            -b1 "$whitelist_path" -b2 "$whitelist_path" \
-            -cl "$compression_level" -m "$mm_rate" \
-            -l1 "$linker1" -l2 "$linker2" -cb "true" \
-            -c "$preprocess_cores" \
-            -bs "$preprocess_batch_size" \
-            -go "$gzip_output" \
-            -bmd "$bc_max_dist" \
-            -bl "$soloCBlen" \
-            -ul "$soloUMIlen" 2>&1 | tee "$step1_log" || {
+            --reads1 "$step1_r1" --reads2 "$step1_r2" \
+            --output "$step1_out" --sample "$sample_name" \
+            --barcodeA_whitelist "$whitelist_path" \
+            --barcodeB_whitelist "$whitelist_path" \
+            --compression_level "$compression_level" \
+            --mm_rate "$mm_rate" \
+            --linker1 "$linker1" --linker2 "$linker2" \
+            --correct_barcode "true" \
+            --core "$preprocess_cores" \
+            --batch_size "$preprocess_batch_size" \
+            --gzip_output "$gzip_output" \
+            --cb_len "$soloCBlen" \
+            --umi_len "$soloUMIlen" 2>&1 | tee "$step1_log" || {
                 echo "Error: preprocessing failed for $sample_name; see $step1_log" >&2
                 exit 1
             }
@@ -301,8 +303,11 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         echo "Error: incomplete STAR outputs for mRNA QC: $final_results" >&2
         exit 1
     fi
-    run_pixi python "$PYTHON_DIR/mrna.py" -f "$final_results/Solo.out" -w "$whitelist_path" \
-        -umi_min "$umi_min" -gene_min "$gene_min" -min_cells "$min_cells" \
+    run_pixi python "$PYTHON_DIR/mrna.py" \
+        --file_path "$final_results/Solo.out" \
+        --barcodeA_whitelist "$whitelist_path" \
+        --barcodeB_whitelist "$whitelist_path" \
+        --umi_min "$umi_min" --gene_min "$gene_min" --min_cells "$min_cells" \
         --cb-len "$soloCBlen" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \
         --length_spot "$length_spot" --interval "$interval" \

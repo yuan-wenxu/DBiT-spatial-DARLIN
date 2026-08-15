@@ -101,7 +101,7 @@ spatial expression and clustering results.
 cd /path/to/sample_name
 dbit mrna \
     --input ./transcriptome/fastq \
-    --chip 50-20
+    --chip 50-50
 ```
 
 ### Saturation analysis
@@ -150,7 +150,8 @@ Filter clone calls against the locus-specific allele banks and plot the top LR
 clones over the mRNA Leiden-cluster background.
 
 ```bash
-dbit clone --rotate 0
+dbit clone \
+    --rotate 0
 ```
 
 The first input path and chip selection are stored in the dataset config and

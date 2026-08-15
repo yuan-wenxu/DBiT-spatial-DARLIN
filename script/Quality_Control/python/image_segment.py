@@ -87,6 +87,21 @@ def _to_uint8(image: np.ndarray) -> np.ndarray:
     return normalized.astype(np.uint8)
 
 
+def _prediction_grayscale(image: np.ndarray) -> np.ndarray:
+    """Convert a tifffile image to one grayscale channel for StarDist."""
+    if image.ndim == 2:
+        return image
+    if image.ndim != 3:
+        raise ValueError(f"Unsupported image shape: {image.shape}")
+    if image.shape[-1] == 1:
+        return image[:, :, 0]
+    if image.shape[-1] == 2:
+        return image.astype(np.float32).mean(axis=2)
+
+    rgb = image[:, :, :3].astype(np.float32)
+    return rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+
 def _remove_small_regions(mask: np.ndarray) -> np.ndarray:
     contours, _ = cv2.findContours(
         mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -253,20 +268,14 @@ def predict_tile(
     """Run StarDist for one tile and write its binary mask and boundary overlay."""
     original = tifffile.imread(image_path)
     image = original.copy()
-    intensity = image[:, :, 1] if image.ndim == 3 and image.shape[-1] >= 2 else image
+    intensity = _prediction_grayscale(image)
     flat_intensity = intensity.ravel()
     top_count = min(config.number_of_top_values, flat_intensity.size)
     top_values = np.partition(flat_intensity, -top_count)[-top_count:]
     if np.mean(top_values) <= config.top_value:
         return None
 
-    if image.ndim == 3 and image.shape[-1] >= 2:
-        normalized = image[:, :, 1]
-    elif image.ndim == 3 and image.shape[-1] == 1:
-        normalized = image[:, :, 0]
-    else:
-        normalized = image
-    normalized = normalized.astype(np.float32)
+    normalized = intensity.astype(np.float32)
     if normalized.max() > 0:
         normalized /= normalized.max()
 
@@ -280,14 +289,14 @@ def predict_tile(
     binary_mask = (labels > 0).astype(np.uint8) * 255
     tifffile.imwrite(mask_path, binary_mask)
 
-    if original.ndim == 3 and original.shape[-1] == 3:
-        visualization = original.astype(np.float32)
+    if original.ndim == 3 and original.shape[-1] >= 3:
+        visualization = original[:, :, :3].astype(np.float32)
     elif original.ndim == 3 and original.shape[-1] == 1:
         green = original[:, :, 0].astype(np.float32)
         zeros = np.zeros_like(green)
         visualization = np.stack([zeros, green, zeros], axis=2)
     else:
-        grayscale = original.astype(np.float32)
+        grayscale = _prediction_grayscale(original).astype(np.float32)
         visualization = np.repeat(grayscale[:, :, np.newaxis], 3, axis=2)
     if visualization.max() > 0:
         visualization /= visualization.max()

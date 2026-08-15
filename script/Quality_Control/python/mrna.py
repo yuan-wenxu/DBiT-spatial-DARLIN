@@ -23,7 +23,100 @@ from utils import (
     validate_barcode_length,
 )
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot mRNA data",
+        add_help=False,
+    )
+    parser.add_argument(
+        "--help",
+        action="help",
+        help="Show this help message and exit",
+    )
+    parser.add_argument(
+        "--file_path",
+        required=True,
+        help="Path to directory containing GeneFull or Gene folder",
+    )
+    parser.add_argument(
+        "--barcodeA_whitelist",
+        required=True,
+        help="TSV/text file with one barcode A sequence per line",
+    )
+    parser.add_argument(
+        "--barcodeB_whitelist",
+        required=True,
+        help="TSV/text file with one barcode B sequence per line",
+    )
+    parser.add_argument(
+        "--cb-len",
+        type=int,
+        required=True,
+        help="Total concatenated cell-barcode length in bp",
+    )
+    parser.add_argument(
+        "--umi_min",
+        type=int,
+        default=900,
+        help="Minimum UMI count per spot",
+    )
+    parser.add_argument(
+        "--gene_min",
+        type=int,
+        default=300,
+        help="Minimum gene count per spot",
+    )
+    parser.add_argument(
+        "--min_cells",
+        type=int,
+        default=3,
+        help="Minimum number of cells per gene",
+    )
+    parser.add_argument(
+        "--x_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in x direction",
+    )
+    parser.add_argument(
+        "--y_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in y direction",
+    )
+    parser.add_argument(
+        "--length_spot",
+        type=int,
+        default=20,
+        help="Length of each spot in pixels",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=20,
+        help="Interval between spots in pixels",
+    )
+    parser.add_argument(
+        "--pixel_length",
+        type=float,
+        default=0.294,
+        help="Length of each pixel in microns",
+    )
+    return parser.parse_args()
+
+
 RANDOM_STATE = 42
+AXIS_FONT_SIZE = 10
+TITLE_FONT_SIZE = 12
+
+
+def set_axis_font_sizes(axis):
+    """Apply the common title, axis-label, and tick font sizes."""
+    axis.title.set_fontsize(TITLE_FONT_SIZE)
+    axis.xaxis.label.set_size(AXIS_FONT_SIZE)
+    axis.yaxis.label.set_size(AXIS_FONT_SIZE)
+    axis.tick_params(axis="both", labelsize=AXIS_FONT_SIZE)
 
 
 def load_and_filter_counts(
@@ -101,6 +194,8 @@ def plot_count_violins(adata, output_path):
         width=0.8,
     )
     axes[1].set(title="UMI per Spot", ylabel="Number of UMIs")
+    for axis in axes:
+        set_axis_font_sizes(axis)
     figure.tight_layout()
     figure.savefig(output_path, bbox_inches="tight", dpi=300)
     plt.close(figure)
@@ -111,12 +206,13 @@ def plot_count_histogram(values, cutoff, cutoff_label, title, xlabel, output_pat
     figure, axis = plt.subplots(figsize=(5, 4))
     axis.hist(values[values <= p95], bins=100, color="#b2df8a")
     axis.axvline(cutoff, color="r", linestyle="--", label=f"{cutoff_label}: {cutoff}")
-    axis.set(
-        xlim=(0, p95),
-        title=f"{title}\nUpper 5% omitted (P95 = {p95:,.0f})",
-        xlabel=xlabel,
-        ylabel="Frequency",
+    axis.set_xlim(0, p95)
+    axis.set_title(
+        f"{title}\nUpper 5% omitted (P95 = {p95:,.0f})",
     )
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel("Frequency")
+    set_axis_font_sizes(axis)
     axis.legend(loc="upper right")
     figure.tight_layout()
     figure.savefig(output_path, bbox_inches="tight", dpi=300)
@@ -150,6 +246,7 @@ def plot_spots_per_gene(values, n_spots, min_cells, output_dir):
         if xlim:
             axis.set_xlim(*xlim)
             axis.set_xticks(range(1, 21))
+        set_axis_font_sizes(axis)
         axis.legend(loc="upper right")
         figure.tight_layout()
         figure.savefig(output_path, bbox_inches="tight", dpi=300)
@@ -274,8 +371,14 @@ def make_h5ad_names_writable(adata):
     sanitize(adata.uns)
 
 
-def plot_cluster(adata, whitelist_path, output, config, cb_len):
-
+def plot_cluster(
+    adata,
+    barcode_a_whitelist,
+    barcode_b_whitelist,
+    output,
+    config,
+    cb_len,
+):
     # extract umi counts and gene counts before normalization
     result = adata.obs[['total_counts', 'n_genes_by_counts']].reset_index()
     result = result.rename(columns={result.columns[0]: 'barcode'})
@@ -290,7 +393,8 @@ def plot_cluster(adata, whitelist_path, output, config, cb_len):
     ax.set_yticks([])
     ax.set_xlabel('')
     ax.set_ylabel('')
-    ax.set_title('Variance ratio', fontsize=16)
+    ax.set_title('Variance ratio')
+    set_axis_font_sizes(ax)
     plt.savefig(f'{output}/pca.png', bbox_inches='tight', dpi=300)
     plt.close()
 
@@ -329,11 +433,18 @@ def plot_cluster(adata, whitelist_path, output, config, cb_len):
     ax.set_yticks([])
     ax.set_xlabel('')
     ax.set_ylabel('')
-    ax.set_title('UMAP', fontsize=16)
+    ax.set_title('UMAP')
+    set_axis_font_sizes(ax)
     plt.savefig(f'{output}/umap.png', bbox_inches='tight', dpi=300)
     plt.close()
 
-    result = add_spatial_coordinates(result, 'barcode', whitelist_path, cb_len)
+    result = add_spatial_coordinates(
+        result,
+        "barcode",
+        barcode_a_whitelist,
+        cb_len,
+        barcode_b_whitelist_path=barcode_b_whitelist,
+    )
     result = result.merge(adata.obs[['leiden']], left_on='barcode', right_index=True)
     data = pd.DataFrame(
         {
@@ -418,18 +529,33 @@ def find_gene_directory(file_path):
     raise ValueError("No GeneFull or Gene folder found in the directory")
 
 
-def run_mrna_qc(config, file_path, whitelist_path, cb_len, umi_min, gene_min, min_cells):
+def run_mrna_qc(
+    config,
+    file_path,
+    barcode_a_whitelist,
+    barcode_b_whitelist,
+    cb_len,
+    umi_min,
+    gene_min,
+    min_cells,
+):
     validate_barcode_length(cb_len)
     method_path = find_gene_directory(file_path) / "raw"
     adata = load_and_filter_counts(
         method_path, True, umi_min, gene_min, min_cells
     )
     csv_path = plot_cluster(
-        adata.copy(), whitelist_path, method_path, config, cb_len
+        adata.copy(),
+        barcode_a_whitelist,
+        barcode_b_whitelist,
+        method_path,
+        config,
+        cb_len,
     )
     plot_spatial_heatmaps(
         csv_path,
-        whitelist_path,
+        barcode_a_whitelist,
+        barcode_b_whitelist,
         method_path,
         cb_len,
         config.x_spots_number,
@@ -438,19 +564,7 @@ def run_mrna_qc(config, file_path, whitelist_path, cb_len, umi_min, gene_min, mi
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot mRNA data")
-    parser.add_argument("-f", "--file_path", required=True, help="Path to directory containing GeneFull or Gene folder")
-    parser.add_argument("-w", "--whitelist_path", required=True, help="Path to whitelist file")
-    parser.add_argument("--cb-len", type=int, required=True, help="Total concatenated cell-barcode length in bp")
-    parser.add_argument("-umi_min", "--umi_min", type=int, default=900, help="Minimum UMI count per spot")
-    parser.add_argument("-gene_min", "--gene_min", type=int, default=300, help="Minimum gene count per spot")
-    parser.add_argument("-min_cells", "--min_cells", type=int, default=3, help="Minimum number of cells per gene")
-    parser.add_argument("--x_spots_number", type=int, default=50, help="Number of spots in x direction")
-    parser.add_argument("--y_spots_number", type=int, default=50, help="Number of spots in y direction")
-    parser.add_argument("--length_spot", type=int, default=20, help="Length of each spot in pixels")
-    parser.add_argument("--interval", type=int, default=20, help="Interval between spots in pixels")
-    parser.add_argument("--pixel_length", type=float, default=0.294, help="Length of each pixel in microns")
-    args = parser.parse_args()
+    args = parse_args()
     config = SpatialPlotConfig(
         args.x_spots_number,
         args.y_spots_number,
@@ -461,7 +575,8 @@ def main():
     run_mrna_qc(
         config,
         args.file_path,
-        args.whitelist_path,
+        args.barcodeA_whitelist,
+        args.barcodeB_whitelist,
         args.cb_len,
         args.umi_min,
         args.gene_min,

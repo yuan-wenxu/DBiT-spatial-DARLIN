@@ -54,14 +54,13 @@ def parse_args() -> argparse.Namespace:
         description="Filter StarDist cells by area and count retained cells per spot."
     )
     parser.add_argument(
-        "-f",
         "--file_path",
         required=True,
         type=Path,
         help="Directory containing cell_num_area.csv",
     )
     parser.add_argument(
-        "-c", "--cutoff", required=True, type=float, help="Minimum retained area"
+        "--cutoff", required=True, type=float, help="Minimum retained area"
     )
     return parser.parse_args()
 

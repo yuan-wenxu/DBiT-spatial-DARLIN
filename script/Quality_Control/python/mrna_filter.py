@@ -1,9 +1,9 @@
+import argparse
 from pathlib import Path
 
 import anndata as ad
-import pandas as pd
 import numpy as np
-import argparse
+import pandas as pd
 
 from utils import (
     ScatterConfig,
@@ -13,6 +13,60 @@ from utils import (
     plot_scatter,
     plot_spatial_frames,
 )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot filtered mRNA results",
+        add_help=False,
+    )
+    parser.add_argument(
+        "--help",
+        action="help",
+        help="Show this help message and exit",
+    )
+    parser.add_argument(
+        "--cell_number_file",
+        type=str,
+        help="Cell number file",
+    )
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        help="mRNA data directory",
+    )
+    parser.add_argument(
+        "--x_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in x direction",
+    )
+    parser.add_argument(
+        "--y_spots_number",
+        type=int,
+        default=50,
+        help="Number of spots in y direction",
+    )
+    parser.add_argument(
+        "--length_spot",
+        type=int,
+        default=20,
+        help="Length of each spot in pixels",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=20,
+        help="Interval between spots in pixels",
+    )
+    parser.add_argument(
+        "--pixel_length",
+        type=float,
+        default=0.294,
+        help="Length of each pixel in microns",
+    )
+    return parser.parse_args()
+
 
 METHODS = ("raw",)
 
@@ -75,16 +129,9 @@ def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_con
 
         plot_spatial_frames(merge_data, method_path, frame_config)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Plot filtered results')
-    parser.add_argument('-c', '--cell_number_file', type=str, help='cell number file')
-    parser.add_argument('-d', '--data_path', type=str, help='data path')
-    parser.add_argument('--x_spots_number', type=int, default=50, help='Number of spots in x direction')
-    parser.add_argument('--y_spots_number', type=int, default=50, help='Number of spots in y direction')
-    parser.add_argument('--length_spot', type=int, default=20, help='Length of each spot in pixels')
-    parser.add_argument('--interval', type=int, default=20, help='Interval between spots in pixels')
-    parser.add_argument('--pixel_length', type=float, default=0.294, help='Length of each pixel in microns')
-    args = parser.parse_args()
+
+def main():
+    args = parse_args()
 
     cell_number_file = args.cell_number_file
     data_path = args.data_path
@@ -100,3 +147,7 @@ if __name__ == '__main__':
     gene_config = ScatterConfig('Number of cells', 'Number of genes', 'Gene_distribution', False, True, False, False)
 
     plot_filtered(cell_number_file, data_path, umi_config, gene_config, frame_config)
+
+
+if __name__ == "__main__":
+    main()

@@ -214,17 +214,19 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     fi
 
     run_pixi python "$PYTHON_DIR/preprocess.py" \
-        -r1 "$preprocess_r1" -r2 "$preprocess_r2" \
-        -o "$output_path" -s "$sample_name" \
-        -b1 "$whitelist_path" -b2 "$whitelist_path" \
-        -c "$cores" \
-        -bs "$preprocess_batch_size" \
-        -cl "$compression_level" \
-        -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
-        -go "$gzip_output" \
-        -cb "false" \
-        -bl "$sb_len" \
-        -ul "$ub_len" 2>&1 | tee "$output_path/${sample_name}_preprocess.log" || {
+        --reads1 "$preprocess_r1" --reads2 "$preprocess_r2" \
+        --output "$output_path" --sample "$sample_name" \
+        --barcodeA_whitelist "$whitelist_path" \
+        --barcodeB_whitelist "$whitelist_path" \
+        --core "$cores" \
+        --batch_size "$preprocess_batch_size" \
+        --compression_level "$compression_level" \
+        --linker1 "$linker1" --linker2 "$linker2" \
+        --mm_rate "$mm_rate" \
+        --gzip_output "$gzip_output" \
+        --correct_barcode "false" \
+        --cb_len "$sb_len" \
+        --umi_len "$ub_len" 2>&1 | tee "$output_path/${sample_name}_preprocess.log" || {
             echo "Error: preprocessing failed for $sample_name; see $output_path/${sample_name}_preprocess.log" >&2
             exit 1
         }
@@ -240,10 +242,11 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     mkdir -p "$results"
 
     run_pixi python "$PYTHON_DIR/amplicon.py" \
-        -bu "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
-        -dr "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
-        -o "$results" -d "$cutadapt" \
-        --whitelist "$whitelist_path" \
+        --barcode_umi_reads "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
+        --darlin_reads "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
+        --output_path "$results" --darlin "$cutadapt" \
+        --barcodeA_whitelist "$whitelist_path" \
+        --barcodeB_whitelist "$whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \
         --x-spots-number "$x_spots_number" \

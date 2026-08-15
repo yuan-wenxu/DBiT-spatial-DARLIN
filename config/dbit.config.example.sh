@@ -17,7 +17,6 @@ gzip_after_preprocess=true
 linker1=GTGGCCGATGTTTCGCATCGGCGTACGACT
 linker2=ATCCACGTGCTTGAGAGGCCAGAGCATTCG
 mm_rate=0.05
-bc_max_dist=1
 preprocess_batch_size=50000
 star_threads=${mrna_cores}
 soloCBstart=1

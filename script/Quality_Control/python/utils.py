@@ -116,19 +116,24 @@ def read_barcode_components(whitelist_path) -> list[str]:
 def add_spatial_coordinates(
     data: pd.DataFrame,
     barcode_column: str,
-    whitelist_path,
+    barcode_a_whitelist_path,
     cb_len: int,
+    barcode_b_whitelist_path=None,
 ) -> pd.DataFrame:
     """Add x/y barcode components and zero-based grid coordinates."""
     component_len = validate_barcode_length(cb_len)
-    components = read_barcode_components(whitelist_path)
-    coordinate = {barcode: index for index, barcode in enumerate(components)}
+    barcode_as = read_barcode_components(barcode_a_whitelist_path)
+    barcode_bs = read_barcode_components(
+        barcode_b_whitelist_path or barcode_a_whitelist_path
+    )
+    x_coordinate = {barcode: index for index, barcode in enumerate(barcode_as)}
+    y_coordinate = {barcode: index for index, barcode in enumerate(barcode_bs)}
     result = data.copy()
     barcodes = result[barcode_column].astype(str)
     result["xbc"] = barcodes.str[component_len:cb_len]
     result["ybc"] = barcodes.str[:component_len]
-    result["x"] = result["xbc"].map(coordinate).fillna(-1).astype(int)
-    result["y"] = result["ybc"].map(coordinate).fillna(-1).astype(int)
+    result["x"] = result["xbc"].map(x_coordinate).fillna(-1).astype(int)
+    result["y"] = result["ybc"].map(y_coordinate).fillna(-1).astype(int)
     return result
 
 
@@ -154,16 +159,23 @@ def merge_tissue_spots(data: pd.DataFrame, cells: pd.DataFrame) -> pd.DataFrame:
 
 def plot_spatial_heatmaps(
     table_path,
-    whitelist_path,
+    barcode_a_whitelist_path,
+    barcode_b_whitelist_path,
     output_path,
     cb_len: int,
     x_spots_number: int,
     y_spots_number: int,
 ) -> None:
-    """Plot every available reads/UMI/gene metric on the configured grid."""
+    """Plot reads/UMI/gene metrics using separate A/B barcode whitelists."""
     data = pd.read_csv(table_path)
     if "x" not in data.columns or "y" not in data.columns:
-        data = add_spatial_coordinates(data, "SR", whitelist_path, cb_len)
+        data = add_spatial_coordinates(
+            data,
+            "SR",
+            barcode_a_whitelist_path,
+            cb_len,
+            barcode_b_whitelist_path=barcode_b_whitelist_path,
+        )
     if "umi_count" not in data.columns and "UR" in data.columns:
         aggregations = {"UR": "nunique"}
         if "reads" in data.columns:
@@ -201,8 +213,12 @@ def plot_spatial_heatmaps(
             ax=axis,
         )
         axis.set(xlabel="", ylabel="", title=title)
+        axis.title.set_fontsize(12)
+        axis.xaxis.label.set_size(10)
+        axis.yaxis.label.set_size(10)
+        axis.tick_params(axis="both", labelsize=10)
         figure.tight_layout()
-        figure.savefig(output_path / filename, dpi=300)
+        figure.savefig(output_path / filename, dpi=300, bbox_inches="tight")
         plt.close(figure)
 
 
@@ -242,8 +258,12 @@ def plot_scatter(x, y, output_path, config: ScatterConfig) -> None:
     if config.grid:
         axis.grid(True)
     axis.set(xlabel=config.xlabel, ylabel=config.ylabel, title=config.title)
+    axis.title.set_fontsize(12)
+    axis.xaxis.label.set_size(10)
+    axis.yaxis.label.set_size(10)
+    axis.tick_params(axis="both", labelsize=10)
     figure.tight_layout()
-    figure.savefig(Path(output_path) / f"{config.title}_scatter.png", dpi=300)
+    figure.savefig(Path(output_path) / f"{config.title}_scatter.png", dpi=300, bbox_inches="tight")
     plt.close(figure)
 
 

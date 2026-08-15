@@ -24,6 +24,9 @@ from utils import (
     read_barcode_components,
 )
 
+PRIMARY_COLOR = "#0072B2"
+THRESHOLD_COLOR = "#D55E00"
+
 
 def str_to_bool(value):
     """Convert common command-line boolean strings to bool."""
@@ -317,9 +320,20 @@ def plot_lineage_length_hist(lengths, output_file, min_len=None):
     if len(lengths) == 0:
         return
     figure, axis = plt.subplots(figsize=(5, 3))
-    axis.hist(lengths, bins=range(1, 300), edgecolor="black")
+    axis.hist(
+        lengths,
+        bins=range(1, 300),
+        color=PRIMARY_COLOR,
+        edgecolor="white",
+        linewidth=0.3,
+    )
     if min_len is not None:
-        axis.axvline(min_len, color="red", linestyle="--", linewidth=0.8)
+        axis.axvline(
+            min_len,
+            color=THRESHOLD_COLOR,
+            linestyle="--",
+            linewidth=0.8,
+        )
     axis.set(
         xlabel="Sequence Length",
         ylabel="Number of reads",
@@ -350,12 +364,31 @@ def plot_reads_cutoff_qc(data, reads_cutoff, output_file):
     molecule_counts = [data.loc[data["reads"] >= cutoff, "UB"].nunique() for cutoff in cutoffs]
     retained = [data.loc[data["reads"] >= cutoff, "reads"].sum() / total_reads for cutoff in cutoffs]
     figure, axes = plt.subplots(2, 1, figsize=(5, 5))
-    axes[0].plot(cutoffs, molecule_counts, marker="o", markersize=2, linewidth=1)
+    axes[0].plot(
+        cutoffs,
+        molecule_counts,
+        marker="o",
+        markersize=2,
+        linewidth=1,
+        color=PRIMARY_COLOR,
+    )
     axes[0].set(xlabel="Reads Cutoff", ylabel="Number of Molecules", xscale="log", yscale="log")
-    axes[1].plot(cutoffs, retained, marker="o", markersize=2, linewidth=1)
+    axes[1].plot(
+        cutoffs,
+        retained,
+        marker="o",
+        markersize=2,
+        linewidth=1,
+        color=PRIMARY_COLOR,
+    )
     axes[1].set(xlabel="Reads Cutoff", ylabel="Frac. of Reads\nRetained", xscale="log", ylim=(0, 1.05))
     for axis in axes:
-        axis.axvline(reads_cutoff, color="red", linestyle="--", linewidth=0.6)
+        axis.axvline(
+            reads_cutoff,
+            color=THRESHOLD_COLOR,
+            linestyle="--",
+            linewidth=0.6,
+        )
         axis.grid(alpha=0.3)
     finish_plot(figure, output_file)
 
@@ -364,12 +397,29 @@ def plot_reads_fraction_qc(data, threshold, output_file):
     if data.empty:
         return
     figure, axes = plt.subplots(2, 1, figsize=(4, 5))
-    axes[0].hist(data["reads_fraction"], bins=50, edgecolor="white", linewidth=0.3)
+    axes[0].hist(
+        data["reads_fraction"],
+        bins=50,
+        color=PRIMARY_COLOR,
+        edgecolor="white",
+        linewidth=0.3,
+    )
     axes[0].set(xlabel="Reads Fraction", ylabel="Number of (SR, UR, LR)")
-    axes[1].scatter(data["reads_fraction"], data["reads"], s=0.2, alpha=0.15)
+    axes[1].scatter(
+        data["reads_fraction"],
+        data["reads"],
+        s=0.2,
+        alpha=0.15,
+        color=PRIMARY_COLOR,
+    )
     axes[1].set(xlabel="Reads Fraction", ylabel="Reads", yscale="log")
     for axis in axes:
-        axis.axvline(threshold, color="red", linestyle="--", linewidth=0.8)
+        axis.axvline(
+            threshold,
+            color=THRESHOLD_COLOR,
+            linestyle="--",
+            linewidth=0.8,
+        )
     finish_plot(figure, output_file)
 
 
@@ -390,7 +440,13 @@ def plot_sr_reads_umis(summary, output_file):
     lower = max(1, summary["n_UR"].min())
     upper = summary["n_UR"].max()
     if lower < upper:
-        axis.plot([lower, upper], [lower, upper], linestyle="--", color="red", linewidth=1)
+        axis.plot(
+            [lower, upper],
+            [lower, upper],
+            linestyle="--",
+            color="red",
+            linewidth=1,
+        )
     handles = [mpatches.Patch(color=color, label=f"k {label}") for label, _, color in categories]
     axis.legend(handles=handles, title="k = Reads/UMIs", loc="center left", bbox_to_anchor=(1, 0.5), fontsize=8, title_fontsize=9)
     finish_plot(figure, output_file)
@@ -401,7 +457,13 @@ def plot_lr_per_sr(data, output_file):
         return
     values = data[["SR", "n_LR"]].drop_duplicates()["n_LR"]
     figure, axis = plt.subplots(figsize=(3, 2))
-    axis.hist(values, bins=range(1, max(8, int(values.max()) + 2)), edgecolor="white", linewidth=0.3)
+    axis.hist(
+        values,
+        bins=range(1, max(8, int(values.max()) + 2)),
+        color=PRIMARY_COLOR,
+        edgecolor="white",
+        linewidth=0.3,
+    )
     axis.set(xlabel="Number of LRs per SR", ylabel="Number of SRs", yscale="log")
     finish_plot(figure, output_file)
 

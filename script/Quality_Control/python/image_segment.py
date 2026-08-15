@@ -15,6 +15,8 @@ import pandas as pd
 import tifffile
 from skimage.segmentation import mark_boundaries
 from stardist.models import StarDist2D
+
+BOUNDARY_COLOR = (213 / 255, 94 / 255, 0.0)
 from tqdm import tqdm
 
 
@@ -292,9 +294,8 @@ def predict_tile(
     if original.ndim == 3 and original.shape[-1] >= 3:
         visualization = original[:, :, :3].astype(np.float32)
     elif original.ndim == 3 and original.shape[-1] == 1:
-        green = original[:, :, 0].astype(np.float32)
-        zeros = np.zeros_like(green)
-        visualization = np.stack([zeros, green, zeros], axis=2)
+        grayscale = original[:, :, 0].astype(np.float32)
+        visualization = np.repeat(grayscale[:, :, np.newaxis], 3, axis=2)
     else:
         grayscale = _prediction_grayscale(original).astype(np.float32)
         visualization = np.repeat(grayscale[:, :, np.newaxis], 3, axis=2)
@@ -302,7 +303,10 @@ def predict_tile(
         visualization /= visualization.max()
 
     overlay = mark_boundaries(
-        visualization, labels, color=(1, 0, 0), mode="thick"
+        visualization,
+        labels,
+        color=BOUNDARY_COLOR,
+        mode="thick",
     )
     tifffile.imwrite(label_path, (overlay * 255).astype(np.uint8))
     return labels

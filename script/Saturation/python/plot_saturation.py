@@ -6,6 +6,10 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
+OBSERVED_COLOR = "#0072B2"
+FIT_COLOR = "#009E73"
+THRESHOLD_COLOR = "#D55E00"
+
 
 def saturation_model(fraction, maximum, rate):
     return maximum * (1 - np.exp(-rate * fraction))
@@ -121,15 +125,22 @@ def main():
                 "r_squared": r_squared,
             }
         )
-        axis.scatter(fractions * 100, values, label="Observed", zorder=3)
+        axis.scatter(
+            fractions * 100,
+            values,
+            color=OBSERVED_COLOR,
+            label="Observed",
+            zorder=3,
+        )
         axis.plot(
             smooth_fractions * 100,
             saturation_model(smooth_fractions, maximum, rate),
+            color=FIT_COLOR,
             label=f"Fit: max={maximum:.1f}, $R^2$={r_squared:.3f}",
         )
         axis.axhline(
             maximum,
-            color="red",
+            color=THRESHOLD_COLOR,
             linestyle="--",
             linewidth=1.2,
             label=f"Saturation={maximum:.1f}",

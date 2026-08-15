@@ -1,26 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-show_help() {
-    cat <<'EOF'
-Usage: ./install-cli.sh
-
-Install the dbit command for the current user by creating a symbolic link in
-~/.local/bin. Set DBIT_INSTALL_DIR to use a different destination directory.
-
-If needed, this script adds ~/.local/bin to PATH in ~/.bashrc.
-EOF
-}
-
-if [[ $# -gt 1 ]]; then
+if [[ $# -ne 0 ]]; then
     echo "Error: install-cli.sh accepts no positional arguments." >&2
     exit 1
-fi
-if [[ $# -eq 1 ]]; then
-    case "$1" in
-        -h|--help) show_help; exit 0 ;;
-        *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
-    esac
 fi
 
 if [[ -z ${HOME:-} && -z ${DBIT_INSTALL_DIR:-} ]]; then

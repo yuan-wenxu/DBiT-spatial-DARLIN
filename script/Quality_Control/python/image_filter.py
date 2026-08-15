@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+PRIMARY_COLOR = "#0072B2"
+THRESHOLD_COLOR = "#D55E00"
+
 
 def filter_segmented_cells(result_path: Path, cutoff: float) -> pd.DataFrame:
     cell_file = result_path / "cell_num_area.csv"
@@ -28,9 +31,19 @@ def filter_segmented_cells(result_path: Path, cutoff: float) -> pd.DataFrame:
     print(f'Spots number before filtering: {(cells["num_cells"] != 0).sum()}')
 
     figure, axis = plt.subplots(figsize=(5, 4))
-    axis.hist(all_areas, bins=100)
+    axis.hist(
+        all_areas,
+        bins=100,
+        color=PRIMARY_COLOR,
+        edgecolor="white",
+        linewidth=0.3,
+    )
     axis.axvline(
-        cutoff, linestyle="--", linewidth=1, color="r", label=f"cutoff = {cutoff}"
+        cutoff,
+        linestyle="--",
+        linewidth=1,
+        color=THRESHOLD_COLOR,
+        label=f"cutoff = {cutoff}",
     )
     axis.set_xlabel("Area")
     axis.set_ylabel("Count")

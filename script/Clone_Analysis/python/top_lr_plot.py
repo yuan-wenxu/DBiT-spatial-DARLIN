@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
 Plot the largest LR entries from allele-bank-filtered CSV files.
-
-"Largest" is defined as the LR observed in the greatest number of unique SR
-(spots). The plotting style matches the current Clone_Analysis overlays:
-- cluster background from an mRNA data_tissuefiltered.csv
-- a contrasting hollow circle on spots containing the selected LR
-- circle size split into 3 bins by unique UR count per SR/LR
 """
 
 from __future__ import annotations
@@ -16,9 +10,7 @@ import math
 from pathlib import Path
 import textwrap
 
-import anndata as ad
 import matplotlib.pyplot as plt
-from matplotlib import colors as mcolors
 from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
@@ -36,6 +28,15 @@ VERTICAL_MARGIN = 0.73
 SPOT_SIDE_LENGTH = 0.82
 FIG_TOP = 0.84
 FIG_BOTTOM = 0.04
+CONTRAST_COLORS = (
+    "#222222",
+    "#D55E00",
+    "#009E73",
+    "#E69F00",
+    "#CC79A7",
+    "#56B4E9",
+    "#6A3D9A",
+)
 
 
 def spatial_figure_layout(
@@ -169,40 +170,20 @@ def load_cluster_background(cluster_csv: Path) -> pd.DataFrame:
         raise SystemExit(f"Cluster CSV not found: {cluster_csv}")
 
     frame = pd.read_csv(cluster_csv, dtype={"color": str}, keep_default_na=False)
-    required_columns = {"x", "y", "leiden"}
+    required_columns = {"x", "y", "leiden", "color"}
     missing_columns = required_columns - set(frame.columns)
     if missing_columns:
         raise SystemExit(
             f"Cluster CSV {cluster_csv} is missing required columns: {missing_columns}"
         )
-    if "color" not in frame.columns:
-        h5ad_path = cluster_csv.parent / "clustered.h5ad"
-        leiden_values = sorted(
-            pd.Series(frame["leiden"]).astype(str).drop_duplicates().tolist(),
-            key=lambda value: int(value) if value.isdigit() else value,
-        )
-        color_map: dict[str, str] = {}
-        if h5ad_path.exists():
-            adata = ad.read_h5ad(h5ad_path, backed="r")
-            if "leiden_colors" in adata.uns:
-                leiden_colors = list(adata.uns["leiden_colors"])
-                color_map = {
-                    leiden: str(leiden_colors[idx])
-                    for idx, leiden in enumerate(leiden_values)
-                    if idx < len(leiden_colors)
-                }
-
-        if not color_map:
-            fallback_colors = [mcolors.to_hex(color) for color in plt.cm.tab20.colors]
-            color_map = {
-                leiden: fallback_colors[idx % len(fallback_colors)]
-                for idx, leiden in enumerate(leiden_values)
-            }
-
-        frame["color"] = frame["leiden"].astype(str).map(color_map).fillna("#bdbdbd")
-
     frame = sanitize_table(frame)
     frame["color"] = frame["color"].astype(str).str.strip()
+    invalid_colors = ~frame["color"].str.fullmatch(r"#[0-9A-Fa-f]{6}")
+    if invalid_colors.any():
+        invalid = frame.loc[invalid_colors, "color"].iloc[0]
+        raise SystemExit(
+            f"Cluster CSV {cluster_csv} contains an invalid color: {invalid!r}"
+        )
     return frame.sort_values(["y", "x"], kind="stable").reset_index(drop=True)
 
 
@@ -214,15 +195,6 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
 
 
 def choose_contrasting_circle_color(cluster_frame: pd.DataFrame) -> str:
-    candidate_colors = [
-        "#000000",
-        "#ff0055",
-        "#00c853",
-        "#ffb300",
-        "#7c4dff",
-        "#00bcd4",
-        "#ff6d00",
-    ]
     used_colors = []
     for color in cluster_frame["color"].astype(str):
         try:
@@ -231,11 +203,11 @@ def choose_contrasting_circle_color(cluster_frame: pd.DataFrame) -> str:
             continue
 
     if not used_colors:
-        return "#000000"
+        return CONTRAST_COLORS[0]
 
-    best_color = "#000000"
+    best_color = CONTRAST_COLORS[0]
     best_score = -1.0
-    for candidate in candidate_colors:
+    for candidate in CONTRAST_COLORS:
         rgb = _hex_to_rgb(candidate)
         min_distance = min(
             math.sqrt(

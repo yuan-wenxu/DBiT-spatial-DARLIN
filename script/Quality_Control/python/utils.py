@@ -16,6 +16,48 @@ from scipy.stats import pearsonr, spearmanr
 
 DOWNSAMPLE_FACTOR = 10
 MIN_OUTPUT_DIMENSION = 1500
+PRIMARY_COLOR = "#0072B2"
+HEATMAP_COLOR = "#D73027"
+UMI_COLOR = HEATMAP_COLOR
+GENE_COLOR = HEATMAP_COLOR
+THRESHOLD_COLOR = "#D55E00"
+CONTINUOUS_CMAP = "Reds"
+CATEGORICAL_COLORS = (
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#D55E00",
+    "#F0E442",
+    "#222222",
+    "#6A3D9A",
+    "#1B9E77",
+    "#E7298A",
+    "#66A61E",
+    "#E6AB02",
+    "#A6761D",
+    "#7570B3",
+    "#A6CEE3",
+    "#FDBF6F",
+    "#B2DF8A",
+    "#FB9A99",
+    "#CAB2D6",
+)
+
+
+def categorical_colors(count):
+    return [
+        CATEGORICAL_COLORS[index % len(CATEGORICAL_COLORS)]
+        for index in range(count)
+    ]
+
+
+def alpha_colormap(color):
+    rgba = np.ones((256, 4), dtype=float)
+    rgba[:, :3] = mcolors.to_rgb(color)
+    rgba[:, 3] = np.linspace(0, 1, 256)
+    return mcolors.ListedColormap(rgba)
 
 
 @dataclass(frozen=True)
@@ -205,7 +247,7 @@ def plot_spatial_heatmaps(
         figure, axis = plt.subplots(figsize=(5, 4))
         sns.heatmap(
             pivot,
-            cmap="YlOrRd",
+            cmap=CONTINUOUS_CMAP,
             annot=False,
             linewidths=0,
             xticklabels=False,
@@ -231,7 +273,7 @@ def plot_scatter(x, y, output_path, config: ScatterConfig) -> None:
         y = y / config.saturation_y
 
     figure, axis = plt.subplots(figsize=(5, 4))
-    axis.scatter(x, y, s=10, alpha=0.1)
+    axis.scatter(x, y, s=10, alpha=0.1, color=PRIMARY_COLOR)
     if len(x) >= 2:
         pearson = pearsonr(x, y)
         spearman = spearmanr(x, y)
@@ -254,7 +296,12 @@ def plot_scatter(x, y, output_path, config: ScatterConfig) -> None:
     if config.equal_axis:
         maximum = max(axis.get_xlim()[1], axis.get_ylim()[1])
         axis.set(xlim=(0, maximum), ylim=(0, maximum))
-        axis.plot([0, maximum], [0, maximum], linestyle="--", color="red")
+        axis.plot(
+            [0, maximum],
+            [0, maximum],
+            linestyle="--",
+            color=THRESHOLD_COLOR,
+        )
     if config.grid:
         axis.grid(True)
     axis.set(xlabel=config.xlabel, ylabel=config.ylabel, title=config.title)
@@ -313,22 +360,15 @@ def scale_frame_alpha(frame):
     return frame.astype(np.uint8)
 
 
-def plot_value_legend(data, output_path, name):
+def plot_value_legend(data, output_path, name, color):
     values = np.asarray(data, dtype=float)
     values = values[np.isfinite(values) & (values > 0)]
     if values.size == 0:
         return
     p95 = np.percentile(values, 95)
 
-    red_rgba = np.zeros((256, 4))
-    red_rgba[:, 0] = 1.0  # 红色通道
-    red_rgba[:, 1] = 0.0  # 绿色
-    red_rgba[:, 2] = 0.0  # 蓝色
-    red_rgba[:, 3] = np.linspace(0, 1, 256)  # 透明度从 0 渐变到 1
-    custom_red_alpha_cmap = mcolors.ListedColormap(red_rgba)
-
     norm = mcolors.Normalize(vmin=0, vmax=p95)
-    sm = plt.cm.ScalarMappable(cmap=custom_red_alpha_cmap, norm=norm)
+    sm = plt.cm.ScalarMappable(cmap=alpha_colormap(color), norm=norm)
     sm.set_array([])
     fig = plt.figure(figsize=(5, 10))
     ax = fig.add_axes([0.10, 0.14, 0.14, 0.70])
@@ -376,11 +416,21 @@ def plot_spatial_frames(data, output_path, config: SpatialPlotConfig):
     )
 
     if 'umi_count' in data.columns:
-        plot_value_legend(data['umi_count'], output_path, 'UMI_distribution')
+        plot_value_legend(
+            data['umi_count'], output_path, 'UMI_distribution', UMI_COLOR
+        )
         if has_umi_per_cell:
-            plot_value_legend(data.loc[positive_cell_spots, 'umi_count'] / data.loc[positive_cell_spots, 'count'], output_path, 'UMI_per_cell_distribution')
+            plot_value_legend(
+                data.loc[positive_cell_spots, 'umi_count']
+                / data.loc[positive_cell_spots, 'count'],
+                output_path,
+                'UMI_per_cell_distribution',
+                UMI_COLOR,
+            )
     if 'gene_count' in data.columns:
-        plot_value_legend(data['gene_count'], output_path, 'Gene_distribution')
+        plot_value_legend(
+            data['gene_count'], output_path, 'Gene_distribution', GENE_COLOR
+        )
 
     if 'leiden' in data.columns:
         frame = np.zeros(frame_shape, dtype=np.uint8)
@@ -391,19 +441,21 @@ def plot_spatial_frames(data, output_path, config: SpatialPlotConfig):
             }
         else:
             clusters = sorted(data['leiden'].astype(int).unique())
-            cmap = plt.get_cmap('tab20', len(clusters))
+            colors = categorical_colors(len(clusters))
             cluster_colors = {
-                cluster_id: np.array(cmap(i))
+                cluster_id: np.array(mcolors.to_rgba(colors[i]))
                 for i, cluster_id in enumerate(clusters)
             }
 
     if 'umi_count' in data.columns:
         frame_umi = np.zeros(frame_shape, dtype=np.float32)
+        umi_rgb = np.asarray(mcolors.to_rgb(UMI_COLOR)) * 255
         if has_umi_per_cell:
             frame_umi_per_cell = np.zeros(frame_shape, dtype=np.float32)
 
     if 'gene_count' in data.columns:
         frame_gene = np.zeros(frame_shape, dtype=np.float32)
+        gene_rgb = np.asarray(mcolors.to_rgb(GENE_COLOR)) * 255
 
     for _, row in data.iterrows():
         x_idx = int(row['x'])
@@ -415,13 +467,15 @@ def plot_spatial_frames(data, output_path, config: SpatialPlotConfig):
         y_end = y_start + config.length_spot
 
         if 'umi_count' in data.columns:
-            frame_umi[y_start: y_end, x_start: x_end, 0] = 255
+            frame_umi[y_start: y_end, x_start: x_end, :3] = umi_rgb
             frame_umi[y_start: y_end, x_start: x_end, 3] = row['umi_count']
             if has_umi_per_cell and row['count'] > 0:
-                frame_umi_per_cell[y_start: y_end, x_start: x_end, 0] = 255
+                frame_umi_per_cell[
+                    y_start: y_end, x_start: x_end, :3
+                ] = umi_rgb
                 frame_umi_per_cell[y_start: y_end, x_start: x_end, 3] = row['umi_count'] / row['count']
         if 'gene_count' in data.columns:
-            frame_gene[y_start: y_end, x_start: x_end, 0] = 255
+            frame_gene[y_start: y_end, x_start: x_end, :3] = gene_rgb
             frame_gene[y_start: y_end, x_start: x_end, 3] = int(row['gene_count'])
         if 'leiden' in data.columns:
             cluster_id = int(row['leiden'])

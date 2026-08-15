@@ -5,7 +5,7 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 import matplotlib.pyplot as plt
-from matplotlib.colors import to_hex
+from matplotlib.colors import to_hex, to_rgba
 from matplotlib.patches import Patch
 import numpy as np
 from PIL import Image, ImageDraw
@@ -109,6 +109,38 @@ def parse_args():
 RANDOM_STATE = 42
 AXIS_FONT_SIZE = 10
 TITLE_FONT_SIZE = 12
+UMI_COLOR = "#0072B2"
+GENE_COLOR = "#E69F00"
+THRESHOLD_COLOR = "#D55E00"
+CATEGORICAL_COLORS = (
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#D55E00",
+    "#F0E442",
+    "#222222",
+    "#6A3D9A",
+    "#1B9E77",
+    "#E7298A",
+    "#66A61E",
+    "#E6AB02",
+    "#A6761D",
+    "#7570B3",
+    "#A6CEE3",
+    "#FDBF6F",
+    "#B2DF8A",
+    "#FB9A99",
+    "#CAB2D6",
+)
+
+
+def categorical_colors(count):
+    return [
+        CATEGORICAL_COLORS[index % len(CATEGORICAL_COLORS)]
+        for index in range(count)
+    ]
 
 
 def set_axis_font_sizes(axis):
@@ -153,6 +185,7 @@ def load_and_filter_counts(
         "Genes per Spot",
         "Number of Genes",
         file_path / "gene_counts_hist.png",
+        color=GENE_COLOR,
     )
     plot_count_histogram(
         adata.obs["total_counts"].to_numpy(),
@@ -161,6 +194,7 @@ def load_and_filter_counts(
         "UMI per Spot",
         "Number of UMIs",
         file_path / "umi_counts_hist.png",
+        color=UMI_COLOR,
     )
     spots_per_gene = np.asarray((adata.X > 0).sum(axis=0)).ravel()
     plot_spots_per_gene(spots_per_gene, adata.n_obs, min_cells, file_path)
@@ -181,7 +215,7 @@ def plot_count_violins(adata, output_path):
     sns.violinplot(
         y=adata.obs["n_genes_by_counts"],
         ax=axes[0],
-        color="#b2df8a",
+        color=GENE_COLOR,
         inner="box",
         width=0.8,
     )
@@ -189,7 +223,7 @@ def plot_count_violins(adata, output_path):
     sns.violinplot(
         y=adata.obs["total_counts"],
         ax=axes[1],
-        color="#ffffb3",
+        color=UMI_COLOR,
         inner="box",
         width=0.8,
     )
@@ -201,11 +235,18 @@ def plot_count_violins(adata, output_path):
     plt.close(figure)
 
 
-def plot_count_histogram(values, cutoff, cutoff_label, title, xlabel, output_path):
+def plot_count_histogram(
+    values, cutoff, cutoff_label, title, xlabel, output_path, color
+):
     p95 = np.percentile(values, 95)
     figure, axis = plt.subplots(figsize=(5, 4))
-    axis.hist(values[values <= p95], bins=100, color="#b2df8a")
-    axis.axvline(cutoff, color="r", linestyle="--", label=f"{cutoff_label}: {cutoff}")
+    axis.hist(values[values <= p95], bins=100, color=color)
+    axis.axvline(
+        cutoff,
+        color=THRESHOLD_COLOR,
+        linestyle="--",
+        label=f"{cutoff_label}: {cutoff}",
+    )
     axis.set_xlim(0, p95)
     axis.set_title(
         f"{title}\nUpper 5% omitted (P95 = {p95:,.0f})",
@@ -235,10 +276,10 @@ def plot_spots_per_gene(values, n_spots, min_cells, output_dir):
     )
     for bins, xlim, output_path in plot_specs:
         figure, axis = plt.subplots(figsize=(5, 4))
-        axis.hist(values, bins=bins, color="#b2df8a")
+        axis.hist(values, bins=bins, color=GENE_COLOR)
         axis.axvline(
             min_cells,
-            color="r",
+            color=THRESHOLD_COLOR,
             linestyle="--",
             label=f"Minimum Cells: {min_cells}",
         )
@@ -419,13 +460,12 @@ def plot_cluster(
         categories=cluster_categories,
         ordered=True,
     )
-    cmap = plt.get_cmap('tab20', len(cluster_ids))
-    colors = cmap(range(len(cluster_ids)))
+    cluster_hex_colors = categorical_colors(len(cluster_ids))
     cluster_colors = {
-        cluster_id: colors[i]
+        cluster_id: np.asarray(to_rgba(cluster_hex_colors[i]))
         for i, cluster_id in enumerate(cluster_ids)
     }
-    adata.uns['leiden_colors'] = [to_hex(colors[i]) for i in range(len(cluster_ids))]
+    adata.uns['leiden_colors'] = cluster_hex_colors
 
     sc.pl.umap(adata, color='leiden', legend_loc='on data', title='UMAP - Clusters', frameon=False, show=False)
     ax = plt.gca()
@@ -490,7 +530,11 @@ def plot_cluster(
     right = width
     bottom = height
     draw = ImageDraw.Draw(img_umap)
-    draw.rectangle([left, top, right, bottom], outline="red", width=box_width)
+    draw.rectangle(
+        [left, top, right, bottom],
+        outline=THRESHOLD_COLOR,
+        width=box_width,
+    )
     img_umap.save(f'{output}/frame_umap.png')
     mask = np.zeros((output_size[1], output_size[0]), dtype=np.uint8)
     mask = Image.fromarray(mask, mode = 'L')

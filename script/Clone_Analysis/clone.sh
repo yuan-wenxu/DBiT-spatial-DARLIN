@@ -1,26 +1,11 @@
 #!/bin/bash
 set -o pipefail
 
-show_help() {
-    cat << EOF
-Usage: $0 <config_file>
-
-Run the top-LR plotting pipeline.
-
-Arguments:
-  config_file   Per-dataset configuration file
-
-Examples:
-  $0 dbit.config.sh
-EOF
-}
-
 SCRIPT_DIR=${CLONE_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
-if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
-if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+if [[ $# -ne 1 ]]; then echo "Error: expected one config file argument" >&2; exit 1; fi
 config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2

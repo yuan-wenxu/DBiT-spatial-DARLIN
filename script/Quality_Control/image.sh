@@ -1,28 +1,13 @@
 #!/bin/bash
 set -o pipefail
 
-show_help() {
-    cat << EOF
-Usage: $0 <config_file>
-
-Process image and perform cell segmentation using StarDist.
-
-Arguments:
-  config_file   Per-dataset QC configuration file
-
-Examples:
-  $0 dbit.config.sh
-EOF
-}
-
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 SEGMENT_SCRIPT="$PYTHON_DIR/image_segment.py"
 FILTER_SCRIPT="$PYTHON_DIR/image_filter.py"
 
-if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
-if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+if [[ $# -ne 1 ]]; then echo "Error: expected one config file argument" >&2; exit 1; fi
 config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2; exit 1
@@ -63,15 +48,25 @@ run_id=${SLURM_JOB_ID:-image_$$}
 scratch_run_dir=""
 
 cleanup_scratch() {
-    local run_dir="${scratch:-}/dbit/${run_id:-}"
-    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
-        rm -rf -- "$run_dir"
+    local status=$?
+    trap - EXIT INT TERM HUP
+    if [[ -n ${scratch_run_dir:-} && -d $scratch_run_dir ]]; then
+        if (( status != 0 )) && [[ -d $scratch_run_dir/result && -n ${result_path:-} ]]; then
+            echo "Recovering image scratch outputs after exit status $status: $result_path" >&2
+            mkdir -p "$result_path" && cp -a "$scratch_run_dir/result/." "$result_path/" || \
+                echo "Warning: failed to recover scratch outputs: $scratch_run_dir/result" >&2
+        fi
+        rm -rf -- "$scratch_run_dir" || echo "Warning: failed to clean scratch directory: $scratch_run_dir" >&2
     fi
+    exit "$status"
 }
 
-trap cleanup_scratch EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
+enable_cleanup() {
+    trap cleanup_scratch EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+}
 
 run_pixi() {
   (
@@ -120,6 +115,7 @@ fi
 
 if [ -n "$scratch" ]; then
     scratch_run_dir="$scratch/dbit/$run_id/image"
+    enable_cleanup
     mkdir -p "$scratch_run_dir"
     mkdir -p "$scratch_run_dir/result"
     cp "$image_path" "$scratch_run_dir/$image_name"
@@ -156,5 +152,5 @@ run_pixi python "$FILTER_SCRIPT" \
     --cutoff "$cutoff" || exit 1
 
 if [ -n "$scratch" ]; then
-    cp -r "$scratch_run_dir/result"/* "$result_path/"
+    cp -a "$scratch_run_dir/result/." "$result_path/"
 fi

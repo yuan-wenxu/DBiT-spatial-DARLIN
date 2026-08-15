@@ -1,20 +1,6 @@
 #!/bin/bash
 set -o pipefail
 
-show_help() {
-    cat <<EOF
-Usage: $0 <config_file>
-
-Run RCTD deconvolution followed by BANKSY spatial-domain clustering.
-
-Arguments:
-  config_file   Per-dataset configuration populated by the mRNA step
-
-Examples:
-  $0 dbit.config.sh
-EOF
-}
-
 SCRIPT_DIR=${DOMAIN_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 R_SCRIPT="$SCRIPT_DIR/R/spacexr.R"
@@ -30,8 +16,7 @@ fi
 # shellcheck source=/dev/null
 source "$CHIP_FILE"
 
-if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
-if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+if [[ $# -ne 1 ]]; then echo "Error: expected one config file argument" >&2; exit 1; fi
 config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2
@@ -53,15 +38,25 @@ run_id=${SLURM_JOB_ID:-domain_$$}
 scratch_root=""
 
 cleanup_scratch() {
-    local run_dir="${scratch:-}/dbit/${run_id:-}"
-    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
-        rm -rf -- "$run_dir"
+    local status=$?
+    trap - EXIT INT TERM HUP
+    if [[ -n ${scratch_root:-} && -d $scratch_root ]]; then
+        if (( status != 0 )) && [[ -n ${scratch_deconv:-} && -d $scratch_deconv && -n ${deconv_output:-} ]]; then
+            echo "Recovering domain-analysis scratch outputs after exit status $status: $deconv_output" >&2
+            mkdir -p "$deconv_output" && cp -a "$scratch_deconv/." "$deconv_output/" || \
+                echo "Warning: failed to recover scratch outputs: $scratch_deconv" >&2
+        fi
+        rm -rf -- "$scratch_root" || echo "Warning: failed to clean scratch directory: $scratch_root" >&2
     fi
+    exit "$status"
 }
 
-trap cleanup_scratch EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
+enable_cleanup() {
+    trap cleanup_scratch EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+}
 
 run_pixi() {
     local environment=$1
@@ -154,6 +149,7 @@ if [[ -n ${scratch:-} ]]; then
     scratch_root="$scratch/dbit/$run_id/domain_analysis"
     scratch_deconv="$scratch_root/deconv"
     use_scratch=true
+    enable_cleanup
 fi
 
 if $use_scratch; then

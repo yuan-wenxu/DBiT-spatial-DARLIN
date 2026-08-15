@@ -1,21 +1,11 @@
 #!/bin/bash
 set -o pipefail
 
-show_help() {
-    cat << EOF
-Usage: $0 <config_file> [fractions]
-
-Downsample all paired mRNA FASTQs into fraction-specific folders, then run the
-complete mRNA pipeline once for each fraction.
-EOF
-}
-
 SCRIPT_DIR=${SATURATION_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 QC_SCRIPT_DIR=${QC_SCRIPT_DIR:-$REPO_DIR/script/Quality_Control}
 
-if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
-if [[ $# -lt 1 || $# -gt 2 ]]; then show_help >&2; exit 1; fi
+if [[ $# -lt 1 || $# -gt 2 ]]; then echo "Error: expected a config file and optional fractions" >&2; exit 1; fi
 
 config_file=$1
 if [[ ! -f "$config_file" ]]; then

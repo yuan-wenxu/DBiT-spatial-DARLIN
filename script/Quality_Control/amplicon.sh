@@ -1,26 +1,11 @@
 #!/bin/bash
 set -o pipefail
 
-show_help() {
-    cat << EOF
-Usage: $0 <config_file>
-
-Process amplification sequencing data with preprocessing, DARLIN correction, and visualization.
-
-Arguments:
-  config_file   Per-dataset QC configuration file
-
-Examples:
-  $0 dbit.config.sh
-EOF
-}
-
 SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
-if [[ ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; fi
-if [[ $# -ne 1 ]]; then show_help >&2; exit 1; fi
+if [[ $# -ne 1 ]]; then echo "Error: expected one config file argument" >&2; exit 1; fi
 config_file=$1
 if [[ ! -f "$config_file" ]]; then
     echo "Error: config file not found: $config_file" >&2; exit 1
@@ -59,15 +44,25 @@ run_id=${SLURM_JOB_ID:-amplicon_$$}
 scratch_run_dir=""
 
 cleanup_scratch() {
-    local run_dir="${scratch:-}/dbit/${run_id:-}"
-    if [[ -n "${run_id:-}" && -n "${scratch:-}" && -d "$run_dir" ]]; then
-        rm -rf -- "$run_dir"
+    local status=$?
+    trap - EXIT INT TERM HUP
+    if [[ -n ${scratch_run_dir:-} && -d $scratch_run_dir ]]; then
+        if (( status != 0 )) && [[ -n ${scratch_output:-} && -d $scratch_output && -n ${orig_output_path:-} ]]; then
+            echo "Recovering amplicon scratch outputs after exit status $status: $orig_output_path" >&2
+            mkdir -p "$orig_output_path" && cp -a "$scratch_output/." "$orig_output_path/" || \
+                echo "Warning: failed to recover scratch outputs: $scratch_output" >&2
+        fi
+        rm -rf -- "$scratch_run_dir" || echo "Warning: failed to clean scratch directory: $scratch_run_dir" >&2
     fi
+    exit "$status"
 }
 
-trap cleanup_scratch EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM HUP
+enable_cleanup() {
+    trap cleanup_scratch EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+}
 
 run_pixi() {
     (
@@ -176,6 +171,7 @@ if [ -n "$scratch" ]; then
     scratch_input="$scratch/dbit/$run_id/amplicon/input"
     scratch_output="$scratch/dbit/$run_id/amplicon/output"
     scratch_run_dir="$scratch/dbit/$run_id/amplicon"
+    enable_cleanup
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
     orig_output_path="$output_path"
@@ -268,5 +264,6 @@ for r1 in "$file_path"/*_R1.fq.gz; do
 done
 
 if [ -n "$scratch" ]; then
-    cp -r "$scratch_output"/* "$orig_output_path"/
+    mkdir -p "$orig_output_path"
+    cp -a "$scratch_output/." "$orig_output_path/"
 fi

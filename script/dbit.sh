@@ -7,11 +7,10 @@ REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 START_DIR=$(pwd -P) || exit 1
 QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
 LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
-DOMAIN_SCRIPT_DIR="$SCRIPT_DIR/Domain_Analysis"
 SATURATION_SCRIPT_DIR="$SCRIPT_DIR/Saturation"
 PROGRAM_NAME=$(basename "$0")
 CHIP_FILE="$REPO_DIR/config/chip.sh"
-export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR DOMAIN_SCRIPT_DIR SATURATION_SCRIPT_DIR
+export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR SATURATION_SCRIPT_DIR
 
 if [[ ! -f "$CHIP_FILE" ]]; then
     echo "Error: chip preset file not found: $CHIP_FILE" >&2
@@ -31,7 +30,6 @@ Steps:
   amplicon      Process DARLIN amplicon FASTQs
   image         Segment a registered image and count cells
   filter        Apply the tissue mask and generate filtered plots
-  domain        Run RCTD deconvolution and BANKSY domain clustering
   clone         Filter and plot clone-analysis results
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
@@ -127,16 +125,6 @@ Optional:
 EOF
 }
 
-show_domain_help() {
-    cat <<EOF
-Usage: $PROGRAM_NAME domain [--config <file>] [options]
-
-Optional:
-  --config <file>        Configuration file (default: ./dbit.config.sh)
-  --rotate <degrees>     Clockwise grid rotation for display: 0, 90, 180, or 270
-EOF
-}
-
 show_step_help() {
     case "$1" in
         init) show_init_help ;;
@@ -145,7 +133,6 @@ show_step_help() {
         amplicon) show_amplicon_help ;;
         image) show_image_help ;;
         filter) show_filter_help ;;
-        domain) show_domain_help ;;
         clone) show_clone_help ;;
     esac
 }
@@ -155,16 +142,16 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        init|mrna|saturation|amplicon|image|filter|domain|clone) show_step_help "$step"; exit 0 ;;
+        init|mrna|saturation|amplicon|image|filter|clone) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    init|mrna|saturation|amplicon|image|filter|domain|clone) ;;
+    init|mrna|saturation|amplicon|image|filter|clone) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: init, mrna, saturation, amplicon, image, filter, domain, clone." >&2
+        echo "Valid steps: init, mrna, saturation, amplicon, image, filter, clone." >&2
         exit 1
         ;;
 esac
@@ -230,7 +217,7 @@ require_step_option() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --config) require_step_option "$1" mrna saturation amplicon image filter domain clone; require_option_value "$@"; config_file=$2; shift 2 ;;
+        --config) require_step_option "$1" mrna saturation amplicon image filter clone; require_option_value "$@"; config_file=$2; shift 2 ;;
         --input) require_step_option "$1" mrna amplicon image; require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
         --chip) require_step_option "$1" mrna amplicon; require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
         --umi-min) require_step_option "$1" mrna; require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
@@ -246,7 +233,7 @@ while [[ $# -gt 0 ]]; do
         --swap-xy) require_step_option "$1" image; require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
         --labels) require_step_option "$1" clone; require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
         --top-n) require_step_option "$1" clone; require_option_value "$@"; cli_top_n=$2; shift 2 ;;
-        --rotate) require_step_option "$1" domain clone; require_option_value "$@"; cli_rotate=$2; shift 2 ;;
+        --rotate) require_step_option "$1" clone; require_option_value "$@"; cli_rotate=$2; shift 2 ;;
         -h|--help) show_step_help "$step"; exit 0 ;;
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
@@ -479,9 +466,6 @@ case "$step" in
         [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
         [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
         ;;
-    domain)
-        [[ -n "$cli_rotate" ]] && set_config_value rotate "$cli_rotate"
-        ;;
     clone)
         [[ -n "$cli_clone_labels" ]] && set_config_value clone_labels "$cli_clone_labels"
         [[ -n "$cli_top_n" ]] && set_config_value clone_top_n "$cli_top_n"
@@ -529,11 +513,6 @@ case "$step" in
         script="$QC_SCRIPT_DIR/filter.sh"
         cpus=$sbatch_filter_cpus; partition=$sbatch_filter_partition
         memory=$sbatch_filter_mem; walltime=$sbatch_filter_time
-        ;;
-    domain)
-        script="$DOMAIN_SCRIPT_DIR/domain.sh"
-        cpus=${sbatch_domain_cpus}; partition=${sbatch_domain_partition}
-        memory=${sbatch_domain_mem}; walltime=${sbatch_domain_time}
         ;;
     clone)
         script="$LR_SCRIPT_DIR/clone.sh"

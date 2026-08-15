@@ -78,9 +78,7 @@ The repository provides two templates in `config/`:
 - `dbit.config.example.sh` — blank template with all fields commented out
 
 Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
-mode, and SLURM resources where applicable. Domain analysis additionally
-requires `rctd_reference_dir`; adjust the RCTD reference column settings to
-match the reference atlas. Use `execution_mode=local` for a local run or
+mode, and SLURM resources where applicable. Use `execution_mode=local` for a local run or
 `execution_mode=hpc` for SLURM submission.
 
 Run `dbit` from the dataset directory. By default it loads `./dbit.config.sh`;
@@ -91,7 +89,7 @@ use `--config <file>` only when the configuration is stored elsewhere.
 The recommended order is:
 
 ```text
-mrna → saturation → image → amplicon → filter → domain → clone
+mrna → saturation → image → amplicon → filter → clone
 ```
 
 ### mRNA QC
@@ -146,21 +144,6 @@ merge spatial overlays with the grayscale tissue image.
 dbit filter
 ```
 
-### Domain analysis
-
-Identify spatial domains from the tissue-filtered mRNA results and plot the
-domain assignments over the grayscale tissue image.
-
-```bash
-dbit domain --rotate 0
-```
-
-For presentation, rotate only the domain grid while leaving its legends fixed:
-
-```bash
-dbit domain --rotate 90
-```
-
 ### Clone analysis
 
 Filter clone calls against the locus-specific allele banks and plot the top LR
@@ -182,7 +165,6 @@ dbit saturation -h
 dbit image -h
 dbit amplicon -h
 dbit filter -h
-dbit domain -h
 dbit clone -h
 ```
 

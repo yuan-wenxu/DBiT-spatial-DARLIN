@@ -9,22 +9,243 @@ Input FASTQs are expected to be paired record-by-record:
 import argparse
 from pathlib import Path
 
-from plot import (
-    plot_sr_reads_umis,
-    plot_lineage_length_hist,
-    plot_lr_per_sr,
-    plot_reads_cutoff_qc,
-    plot_reads_fraction_qc,
-    setup_plot_dir,
-)
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import pandas as pd
+from tqdm import tqdm
+from umi_tools import UMIClusterer
+
 from utils import (
-    add_reads_fraction,
-    correct_sb_to_whitelist,
-    correct_lineage_barcodes,
-    correct_umis,
-    read_extracted_fastqs,
-    read_whitelist,
+    iter_fastq,
+    iter_paired_fastq,
+    open_text,
+    plot_spatial_heatmaps,
+    read_nonempty_lines,
 )
+
+
+def hamming_dist(first, second):
+    if len(first) != len(second):
+        return max(len(first), len(second))
+    return sum(left != right for left, right in zip(first, second))
+
+
+def collapse_within_hd(items, max_hd):
+    counts = dict(items)
+    sequences = sorted(counts, key=lambda sequence: counts[sequence], reverse=True)
+    parent = {sequence: sequence for sequence in sequences}
+    for index, sequence in enumerate(sequences):
+        if parent[sequence] != sequence:
+            continue
+        for candidate in sequences[index + 1 :]:
+            if parent[candidate] != candidate or len(candidate) != len(sequence):
+                continue
+            if (
+                hamming_dist(sequence, candidate) <= max_hd
+                and counts[sequence] >= 2 * counts[candidate] - 1
+            ):
+                parent[candidate] = sequence
+    return parent
+
+
+def read_whitelist(whitelist_file):
+    components = read_nonempty_lines(whitelist_file)
+    return {first + second for first in components for second in components}
+
+
+def neighbors_hd1(sequence):
+    return [
+        sequence[:index] + base + sequence[index + 1 :]
+        for index, current in enumerate(sequence)
+        for base in ("A", "C", "G", "T")
+        if base != current
+    ]
+
+
+def correct_sb_to_whitelist(data, sb_col="SB", whitelist=None):
+    if whitelist is None:
+        raise ValueError("whitelist is required for SB correction")
+    whitelist = set(whitelist)
+    corrected = []
+    for barcode in data[sb_col].astype(str):
+        if barcode in whitelist:
+            corrected.append(barcode)
+            continue
+        hits = [candidate for candidate in neighbors_hd1(barcode) if candidate in whitelist]
+        corrected.append(hits[0] if len(hits) == 1 else None)
+    return corrected
+
+
+def correct_umis(data, sr_col="SR", umi_col="UB", count_col="reads", max_hd=1):
+    corrected = []
+    clusterer = UMIClusterer(cluster_method="directional")
+    for _, subset in tqdm(
+        data.groupby(sr_col, sort=False), desc="Correcting UMIs with umi_tools"
+    ):
+        counts = subset.groupby(umi_col)[count_col].sum().to_dict()
+        if not counts:
+            continue
+        byte_counts = {umi.encode(): int(count) for umi, count in counts.items()}
+        mapping = {}
+        for group in clusterer(byte_counts, threshold=max_hd):
+            representative = max(group, key=lambda umi: byte_counts.get(umi, 0)).decode()
+            mapping.update({umi.decode(): representative for umi in group})
+        subset = subset.copy()
+        subset["UR"] = subset[umi_col].map(lambda umi: mapping.get(umi, umi))
+        corrected.append(subset)
+    if corrected:
+        return pd.concat(corrected, ignore_index=True)
+    return data.assign(UR=pd.Series(dtype=str))
+
+
+def correct_lineage_barcodes(
+    data,
+    sr_col="SR",
+    lb_col="LB",
+    lb_len_col="LB_len",
+    count_col="reads",
+    error_rate=0.01,
+    min_hd=1,
+):
+    data = data.copy()
+    if lb_len_col not in data.columns:
+        data[lb_len_col] = data[lb_col].astype(str).str.len()
+    corrected = []
+    groups = data.groupby([sr_col, lb_len_col], sort=False)
+    for (_, lb_len), subset in tqdm(groups, desc="Correcting lineage barcodes"):
+        counts = subset.groupby(lb_col)[count_col].sum()
+        threshold = max(int(round(error_rate * int(lb_len))), min_hd)
+        mapping = collapse_within_hd(counts.items(), threshold)
+        subset = subset.copy()
+        subset["LR"] = subset[lb_col].map(lambda barcode: mapping.get(barcode, barcode))
+        corrected.append(subset)
+    if corrected:
+        return pd.concat(corrected, ignore_index=True)
+    return data.assign(LR=pd.Series(dtype=str))
+
+
+def add_reads_fraction(data, mode):
+    data = data.copy()
+    if mode == "sum":
+        denominator = data.groupby(["SR", "UR"])["reads"].transform("sum")
+        data["group_reads"] = denominator
+    elif mode == "max":
+        denominator = data.groupby(["SR", "UR"])["reads"].transform("max")
+        data["group_max_reads"] = denominator
+    else:
+        raise ValueError(f"Unsupported reads_fraction_mode: {mode}")
+    data["reads_fraction"] = data["reads"] / denominator
+    return data
+
+
+def setup_plot_dir(args):
+    args.output_path.mkdir(parents=True, exist_ok=True)
+    return args.output_path
+
+
+def finish_plot(figure, output_file):
+    for axis in figure.axes:
+        axis.xaxis.label.set_size(10)
+        axis.yaxis.label.set_size(10)
+        axis.tick_params(axis="both", labelsize=10)
+        axis.title.set_size(12)
+    figure.tight_layout()
+    figure.savefig(output_file, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    print(f"Wrote plot: {output_file}")
+
+
+def plot_lineage_length_hist(lengths, output_file, min_len=None):
+    if len(lengths) == 0:
+        return
+    figure, axis = plt.subplots(figsize=(5, 3))
+    axis.hist(lengths, bins=range(1, 300), edgecolor="black")
+    if min_len is not None:
+        axis.axvline(min_len, color="red", linestyle="--", linewidth=0.8)
+    axis.set(
+        xlabel="Sequence Length",
+        ylabel="Number of reads",
+        title="Distribution of DARLIN Array Sequence\nLengths By Reads",
+    )
+    finish_plot(figure, output_file)
+
+
+def get_cutoff_values(data):
+    if data.empty:
+        return []
+    maximum = int(data["reads"].max())
+    if maximum < 1:
+        return []
+    values = list(range(1, min(10, maximum) + 1))
+    if maximum >= 11:
+        values.extend(range(11, min(50, maximum) + 1, 3))
+    if maximum >= 61 and maximum // 2 >= 61:
+        values.extend(range(61, maximum // 2 + 1, 10))
+    return sorted(set(values))
+
+
+def plot_reads_cutoff_qc(data, reads_cutoff, output_file):
+    cutoffs = get_cutoff_values(data)
+    if not cutoffs:
+        return
+    total_reads = data["reads"].sum()
+    molecule_counts = [data.loc[data["reads"] >= cutoff, "UB"].nunique() for cutoff in cutoffs]
+    retained = [data.loc[data["reads"] >= cutoff, "reads"].sum() / total_reads for cutoff in cutoffs]
+    figure, axes = plt.subplots(2, 1, figsize=(5, 5))
+    axes[0].plot(cutoffs, molecule_counts, marker="o", markersize=2, linewidth=1)
+    axes[0].set(xlabel="Reads Cutoff", ylabel="Number of Molecules", xscale="log", yscale="log")
+    axes[1].plot(cutoffs, retained, marker="o", markersize=2, linewidth=1)
+    axes[1].set(xlabel="Reads Cutoff", ylabel="Frac. of Reads\nRetained", xscale="log", ylim=(0, 1.05))
+    for axis in axes:
+        axis.axvline(reads_cutoff, color="red", linestyle="--", linewidth=0.6)
+        axis.grid(alpha=0.3)
+    finish_plot(figure, output_file)
+
+
+def plot_reads_fraction_qc(data, threshold, output_file):
+    if data.empty:
+        return
+    figure, axes = plt.subplots(2, 1, figsize=(4, 5))
+    axes[0].hist(data["reads_fraction"], bins=50, edgecolor="white", linewidth=0.3)
+    axes[0].set(xlabel="Reads Fraction", ylabel="Number of (SR, UR, LR)")
+    axes[1].scatter(data["reads_fraction"], data["reads"], s=0.2, alpha=0.15)
+    axes[1].set(xlabel="Reads Fraction", ylabel="Reads", yscale="log")
+    for axis in axes:
+        axis.axvline(threshold, color="red", linestyle="--", linewidth=0.8)
+    finish_plot(figure, output_file)
+
+
+def plot_sr_reads_umis(summary, output_file):
+    if summary.empty:
+        return
+    figure, axis = plt.subplots(figsize=(4, 3))
+    categories = (
+        ("<=1", summary["k"] <= 1, "#4575b4"),
+        ("<=5", (summary["k"] > 1) & (summary["k"] <= 5), "#91bfdb"),
+        ("<=10", (summary["k"] > 5) & (summary["k"] <= 10), "#fee090"),
+        (">10", summary["k"] > 10, "#d73027"),
+    )
+    for _, mask, color in categories:
+        subset = summary.loc[mask]
+        axis.scatter(subset["n_reads"], subset["n_UR"], s=2, alpha=0.4, color=color)
+    axis.set(xscale="log", yscale="log", xlabel="Reads", ylabel="UMIs")
+    lower = max(1, summary["n_UR"].min())
+    upper = summary["n_UR"].max()
+    if lower < upper:
+        axis.plot([lower, upper], [lower, upper], linestyle="--", color="red", linewidth=1)
+    handles = [mpatches.Patch(color=color, label=f"k {label}") for label, _, color in categories]
+    axis.legend(handles=handles, title="k = Reads/UMIs", loc="center left", bbox_to_anchor=(1, 0.5), fontsize=8, title_fontsize=9)
+    finish_plot(figure, output_file)
+
+
+def plot_lr_per_sr(data, output_file):
+    if data.empty or "n_LR" not in data.columns:
+        return
+    values = data[["SR", "n_LR"]].drop_duplicates()["n_LR"]
+    figure, axis = plt.subplots(figsize=(3, 2))
+    axis.hist(values, bins=range(1, max(8, int(values.max()) + 2)), edgecolor="white", linewidth=0.3)
+    axis.set(xlabel="Number of LRs per SR", ylabel="Number of SRs", yscale="log")
+    finish_plot(figure, output_file)
 
 
 def str_to_bool(value):
@@ -36,6 +257,55 @@ def str_to_bool(value):
     if value.lower() in ("no", "false", "f", "n", "0"):
         return False
     raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value}")
+
+
+def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len, ub_len):
+    """Read amplicon-specific SB/UB and optional lineage FASTQs."""
+    if sb_len <= 0 or ub_len <= 0:
+        raise ValueError("sb_len and ub_len must be positive integers")
+    rows = []
+    n_total = 0
+    sb_ub_len = sb_len + ub_len
+
+    with open_text(sb_ub_fq) as sb_ub_handle:
+        if lineage_bc_fq:
+            with open_text(lineage_bc_fq) as lineage_handle:
+                records = iter_paired_fastq(sb_ub_handle, lineage_handle)
+                for _, sb_ub, _, _, lineage, _ in tqdm(
+                    records,
+                    desc="Reading extracted FASTQs",
+                    unit_scale=True,
+                    unit=" reads",
+                ):
+                    n_total += 1
+                    if len(sb_ub) < sb_ub_len:
+                        continue
+                    rows.append(
+                        (
+                            lineage,
+                            sb_ub[:sb_len],
+                            sb_ub[sb_len:sb_ub_len],
+                            len(lineage),
+                        )
+                    )
+        else:
+            for _, sequence, _ in tqdm(
+                iter_fastq(sb_ub_handle),
+                desc="Reading extracted SB/UB FASTQ",
+                unit_scale=True,
+                unit=" reads",
+            ):
+                n_total += 1
+                if len(sequence) < sb_ub_len:
+                    continue
+                rows.append((sequence[:sb_len], sequence[sb_len:sb_ub_len]))
+
+    print(f"input_reads: {n_total:,}")
+    print(f"reads_after_length_filter (barcode+UMI): {len(rows):,}")
+    print("\n")
+    if lineage_bc_fq:
+        return pd.DataFrame(rows, columns=["LB", "SB", "UB", "LB_len"])
+    return pd.DataFrame(rows, columns=["SB", "UB"])
 
 
 def parse_args():
@@ -73,6 +343,8 @@ def parse_args():
     parser.add_argument("--whitelist", help="Optional TSV/text file with one DBiT barcode per line for SB correction.")
     parser.add_argument("--sb-len", dest="sb_len", type=int, required=True, help="Length of concatenated spot barcode.")
     parser.add_argument("--ub-len", type=int, required=True, help="Length of UMI barcode.")
+    parser.add_argument("--x-spots-number", "--x_spots_number", dest="x_spots_number", type=int, default=50, help="Number of spots in x direction.")
+    parser.add_argument("--y-spots-number", "--y_spots_number", dest="y_spots_number", type=int, default=50, help="Number of spots in y direction.")
     parser.add_argument("--umi_hd_threshold", type=int, default=1, help="Hamming-distance threshold for UMI correction within each SR.")
     parser.add_argument("--min-lb-len", type=int, default=20, help="Minimum lineage barcode length.")
     parser.add_argument(
@@ -239,6 +511,14 @@ def process(args):
     out_final = args.output_path / "final.csv"
     df_final.to_csv(out_final, index=False)
     print(f"Wrote final table: {out_final.resolve()}")
+    plot_spatial_heatmaps(
+        out_final,
+        args.whitelist,
+        args.output_path,
+        args.sb_len,
+        args.x_spots_number,
+        args.y_spots_number,
+    )
 
 
 def main():

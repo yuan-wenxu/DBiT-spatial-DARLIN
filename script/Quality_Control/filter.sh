@@ -121,7 +121,7 @@ fi
 if [ -n "$mrna_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
-        pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_cell.py" \
+        pixi run -e "$pixi_env" python "$PYTHON_DIR/mrna_filter.py" \
             -c "$cell_number_file" \
             -d "$mrna_dir" \
             --x_spots_number "$x_spots_number" \
@@ -141,7 +141,7 @@ fi
 if [ -n "$amp_dir" ]; then
     (
         cd "$pixi_env_dir" || exit 1
-        pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_cell.py" \
+        pixi run -e "$pixi_env" python "$PYTHON_DIR/amplicon_filter.py" \
             -c "$cell_number_file" \
             -d "$amp_dir" \
             -w "$whitelist_path" \

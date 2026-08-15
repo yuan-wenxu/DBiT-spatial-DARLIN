@@ -3,27 +3,18 @@ from pathlib import Path
 import anndata as ad
 import pandas as pd
 import numpy as np
-from plot import plot_scatter, ScatterConfig, plot_frame_filtered, PlotConfig
 import argparse
 
-method = ['raw']
-darlin = ['CA', 'RA', 'TA']
+from utils import (
+    ScatterConfig,
+    SpatialPlotConfig,
+    load_cell_numbers,
+    merge_tissue_spots,
+    plot_scatter,
+    plot_spatial_frames,
+)
 
-def load_cell_numbers(cell_number_file):
-    cell_number = pd.read_csv(cell_number_file, header=0)
-    required = {'x', 'y', 'count', 'in_tissue'}
-    missing = required.difference(cell_number.columns)
-    if missing:
-        raise ValueError(f'Cell-count file is missing columns: {sorted(missing)}')
-    if cell_number['in_tissue'].dtype != bool:
-        cell_number['in_tissue'] = cell_number['in_tissue'].astype(str).str.lower().isin(['true', '1', 'yes'])
-    return cell_number
-
-
-def add_tissue_and_cells(data, cell_number):
-    merged = data.merge(cell_number[['x', 'y', 'count', 'in_tissue']], on=['x', 'y'])
-    merged = merged[merged['in_tissue']]
-    return merged
+METHODS = ("raw",)
 
 
 def filter_clustered_h5ad(h5ad_path, cell_number):
@@ -58,13 +49,13 @@ def filter_clustered_h5ad(h5ad_path, cell_number):
 
 def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_config):
     cell_number = load_cell_numbers(cell_number_file)
-    for m in method:
-        m_path = umi_gene + '/' + m
-        data_path = m_path + '/' + 'data.csv'
-        data = pd.read_csv(data_path, header = 0)
-        merge_data = add_tissue_and_cells(data, cell_number)
-        merge_data.to_csv(m_path + '/' + 'data_tissuefiltered.csv', index = False)
-        filter_clustered_h5ad(Path(m_path) / 'clustered.h5ad', cell_number)
+    for method in METHODS:
+        method_path = Path(umi_gene) / method
+        data_path = method_path / "data.csv"
+        data = pd.read_csv(data_path)
+        merge_data = merge_tissue_spots(data, cell_number)
+        merge_data.to_csv(method_path / "data_tissuefiltered.csv", index=False)
+        filter_clustered_h5ad(method_path / "clustered.h5ad", cell_number)
         print(data_path)
         print(f'Tissue-filtered spots: {len(merge_data)}')
         print(f'Total UMI: {np.sum(merge_data["umi_count"])}')
@@ -78,29 +69,11 @@ def plot_filtered(cell_number_file, umi_gene, umi_config, gene_config, frame_con
         if not spots_with_cells.empty:
             print(f"Mean UMI per cell: {np.mean(spots_with_cells['umi_count']/spots_with_cells['count'])}")
             print(f"Median UMI per cell: {np.median(spots_with_cells['umi_count']/spots_with_cells['count'])}")
-            plot_scatter(spots_with_cells['count'], spots_with_cells['umi_count'], m_path, umi_config)
-            plot_scatter(spots_with_cells['count'], spots_with_cells['gene_count'], m_path, gene_config)
+            plot_scatter(spots_with_cells['count'], spots_with_cells['umi_count'], method_path, umi_config)
+            plot_scatter(spots_with_cells['count'], spots_with_cells['gene_count'], method_path, gene_config)
         print('\n')
 
-        plot_frame_filtered(merge_data, m_path, frame_config)
-        
-        for d in darlin:
-            try:
-                d_path = m_path + '/' + d + '/' + f'{d}.csv'
-                darlin_data = pd.read_csv(d_path, header = 0)
-                darlin_merge = add_tissue_and_cells(darlin_data, cell_number)
-                print(f"Spots number for {d}: {len(darlin_merge)}")
-                print(f"Total UMI for {d}: {np.sum(darlin_merge['umi_count'])}")
-                print(f'Darlin UMI per spot for {d}: {np.sum(darlin_merge["umi_count"])/len(merge_data)}')
-                darlin_with_cells = darlin_merge[darlin_merge['count'] > 0]
-                if not darlin_with_cells.empty:
-                    plot_scatter(darlin_with_cells['count'], darlin_with_cells['umi_count'], m_path + '/' + d, umi_config)
-                darlin_merge.to_csv(m_path + '/' + d + '/' + f'{d}_tissuefiltered.csv', index = False)
-            except:
-                print(f"{d} data not found in {m} method.")
-        print('\n')
-
-        
+        plot_spatial_frames(merge_data, method_path, frame_config)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Plot filtered results')
@@ -121,7 +94,7 @@ if __name__ == '__main__':
     interval = args.interval
     pixel_length = args.pixel_length
 
-    frame_config = PlotConfig(x_spots_number, y_spots_number, length_spot, interval, pixel_length)
+    frame_config = SpatialPlotConfig(x_spots_number, y_spots_number, length_spot, interval, pixel_length)
 
     umi_config = ScatterConfig('Number of cells', 'Number of UMIs', 'UMI_distribution', False, True, False, False)
     gene_config = ScatterConfig('Number of cells', 'Number of genes', 'Gene_distribution', False, True, False, False)

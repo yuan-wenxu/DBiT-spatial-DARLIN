@@ -72,10 +72,10 @@ script/Quality_Control/mrna.sh
 ### 3.1 Preprocessing
 
 The shell script locates transcriptome FASTQ pairs from the input path passed
-by `dbit.sh`, then calls the preprocessing Python code under:
+by `dbit.sh`, then calls the shared preprocessing entry point:
 
 ```text
-script/Quality_Control/python/preprocessing/
+script/Quality_Control/python/preprocess.py
 ```
 
 Main operations:
@@ -134,11 +134,11 @@ After STARsolo, `mrna.sh` calls:
 script/Quality_Control/python/mrna.py
 ```
 
-This runs QC, filtering, plotting, and clustering. The clustering implementation is in:
+This script contains the mRNA-specific matrix QC, filtering, plotting, and
+clustering logic. DARLIN processing is handled only by the amplicon workflow.
 
-```text
-script/Quality_Control/python/plot/cluster.py
-```
+Shared FASTQ/text I/O, spatial-coordinate mapping, tissue-table merging, and
+spatial plotting helpers are defined in `script/Quality_Control/python/utils.py`.
 
 The clustering workflow:
 
@@ -286,6 +286,11 @@ accepts either `sample-CA` or `sample_CA` naming.
 
 ### 5.1 Preprocessing
 
+`amplicon.sh` performs the locus-specific two-pass cutadapt trimming itself,
+then passes the trimmed FASTQ pair to the shared `python/preprocess.py` barcode
+and UMI extractor. The mRNA workflow calls the same extractor directly and
+does not run cutadapt.
+
 Main operations:
 
 1. Optionally run cutadapt.
@@ -311,6 +316,9 @@ After preprocessing, the shell script calls:
 ```text
 script/Quality_Control/python/amplicon.py
 ```
+
+The same script contains the amplicon-specific FASTQ parsing, barcode/UMI/LR
+correction, QC plotting, `final.csv` output, and spatial heatmap generation.
 
 The correction workflow:
 
@@ -378,7 +386,7 @@ config; the `filter` step does not accept `--input` or `--chip`:
 For mRNA data, the script calls:
 
 ```text
-script/Quality_Control/python/mrna_cell.py
+script/Quality_Control/python/mrna_filter.py
 ```
 
 Key mRNA output:
@@ -394,7 +402,7 @@ Key mRNA output:
 For amplicon data, the script calls:
 
 ```text
-script/Quality_Control/python/amplicon_cell.py
+script/Quality_Control/python/amplicon_filter.py
 ```
 
 Key amplicon outputs are written per locus:

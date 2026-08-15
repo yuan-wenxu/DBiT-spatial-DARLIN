@@ -83,6 +83,51 @@ compress_fastq_file() {
     run_pixi pigz -f -p "$threads" "-$level" "$fq"
 }
 
+run_amplicon_cutadapt() {
+    local locus="$1"
+    local reads1="$2"
+    local reads2="$3"
+    local sample="$4"
+    local trim_dir="$output_path/fastq_cut"
+    local prime3 prime5
+
+    case "$locus" in
+        CA)
+            prime3="AGAATTCTAACTAGA"
+            prime5="GTACAAGTAAGCGGC"
+            ;;
+        RA)
+            prime3="GTCTGCTGTGTGCCT"
+            prime5="ACAAGTAAAGCGGCC"
+            ;;
+        TA)
+            prime3="GTCTTGTCGGTGCCT"
+            prime5="TCGGTACCTCGCGAA"
+            ;;
+        *)
+            echo "Error: unsupported DARLIN locus for cutadapt: $locus" >&2
+            return 1
+            ;;
+    esac
+
+    mkdir -p "$trim_dir"
+    local temporary_r1="$trim_dir/${sample}_R1.tmp.fq.gz"
+    local temporary_r2="$trim_dir/${sample}_R2.tmp.fq.gz"
+    preprocess_r1="$trim_dir/${sample}_R1.trimmed.fq.gz"
+    preprocess_r2="$trim_dir/${sample}_R2.trimmed.fq.gz"
+
+    run_pixi cutadapt -j "$cores" -A "$prime3" \
+        --overlap "${#prime3}" --error-rate 0 \
+        -q "$base_quality" -m 10 --discard-untrimmed \
+        -o "$temporary_r1" -p "$temporary_r2" "$reads1" "$reads2" || return 1
+    run_pixi cutadapt -j "$cores" -G "$prime5" \
+        --overlap "${#prime5}" --error-rate 0 \
+        -q "$base_quality" -m 10 --discard-untrimmed \
+        -o "$preprocess_r1" -p "$preprocess_r2" \
+        "$temporary_r1" "$temporary_r2" || return 1
+    rm -f -- "$temporary_r1" "$temporary_r2"
+}
+
 # Validate inputs
 if [ -z "$whitelist_path" ]; then
     echo "Error: whitelist_path is required in config" >&2
@@ -118,6 +163,15 @@ fi
 
 mkdir -p "$output_path"
 
+case "${cutadapt,,}" in
+    true|yes|1) cutadapt_enabled=true ;;
+    false|no|0) cutadapt_enabled=false ;;
+    *)
+        echo "Error: cutadapt must be true or false" >&2
+        exit 1
+        ;;
+esac
+
 if [ -n "$scratch" ]; then
     scratch_input="$scratch/dbit/$run_id/amplicon/input"
     scratch_output="$scratch/dbit/$run_id/amplicon/output"
@@ -138,6 +192,16 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     r2=$file_path/$sample_name"_R2.fq.gz"
 
     # Cutadapt and extract UMI and barcode
+    preprocess_r1="$r1"
+    preprocess_r2="$r2"
+    if $cutadapt_enabled; then
+        run_amplicon_cutadapt \
+            "$locus" "$r1" "$r2" "$sample_name" || {
+                echo "Error: cutadapt failed for $sample_name" >&2
+                exit 1
+            }
+    fi
+
     gzip_after_enabled=false
     if [[ "${gzip_after_preprocess,,}" =~ ^(true|yes|1)$ ]]; then
         gzip_after_enabled=true
@@ -154,12 +218,12 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     fi
 
     run_pixi python "$PYTHON_DIR/preprocess.py" \
-        -r1 "$r1" -r2 "$r2" \
+        -r1 "$preprocess_r1" -r2 "$preprocess_r2" \
         -o "$output_path" -s "$sample_name" \
         -b1 "$whitelist_path" -b2 "$whitelist_path" \
-        -l "$locus" -c "$cores" -q "$base_quality" \
+        -c "$cores" \
         -bs "$preprocess_batch_size" \
-        -cl "$compression_level" -cut "$cutadapt" \
+        -cl "$compression_level" \
         -l1 "$linker1" -l2 "$linker2" -m "$mm_rate" \
         -go "$gzip_output" \
         -cb "false" \
@@ -186,6 +250,8 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --whitelist "$whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \
+        --x-spots-number "$x_spots_number" \
+        --y-spots-number "$y_spots_number" \
         --umi_hd_threshold "$umi_hd_threshold" \
         --min-lb-len "$min_lb_len" \
         --initial-reads-cutoff "$initial_reads_cutoff" \
@@ -199,11 +265,6 @@ for r1 in "$file_path"/*_R1.fq.gz; do
             exit 1
         }
 
-    run_pixi python "$PYTHON_DIR/plot/heatmap.py" \
-        -f "$results/final.csv" \
-        -w "$whitelist_path" \
-        --cb-len "$sb_len" \
-        -o "$results" || exit 1
 done
 
 if [ -n "$scratch" ]; then

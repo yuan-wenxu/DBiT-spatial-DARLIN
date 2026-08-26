@@ -27,10 +27,12 @@ cutadapt=${cutadapt}
 if [[ -z ${amplicon_fastq_path:-} ]]; then
     echo "Error: amplicon_fastq_path must be set in the QC config." >&2; exit 1
 fi
-if [[ -z ${whitelist_path:-} ]]; then
-    echo "Run this script through dbit.sh so --chip is resolved." >&2
-    exit 1
-fi
+for variable in barcode_a_whitelist_path barcode_b_whitelist_path; do
+    if [[ -z ${!variable:-} ]]; then
+        echo "Run this script through dbit.sh so --chip is resolved." >&2
+        exit 1
+    fi
+done
 
 normalize_dir_path() {
     local path="$1"
@@ -123,12 +125,6 @@ run_amplicon_cutadapt() {
     rm -f -- "$temporary_r1" "$temporary_r2"
 }
 
-# Validate inputs
-if [ -z "$whitelist_path" ]; then
-    echo "Error: whitelist_path is required in config" >&2
-    exit 1
-fi
-
 if [[ "$reads_fraction_mode" != "sum" && "$reads_fraction_mode" != "max" ]]; then
     echo "Error: reads_fraction_mode must be 'sum' or 'max'" >&2
     exit 1
@@ -216,8 +212,8 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     run_pixi python "$PYTHON_DIR/preprocess.py" \
         --reads1 "$preprocess_r1" --reads2 "$preprocess_r2" \
         --output "$output_path" --sample "$sample_name" \
-        --barcodeA_whitelist "$whitelist_path" \
-        --barcodeB_whitelist "$whitelist_path" \
+        --barcodeA_whitelist "$barcode_a_whitelist_path" \
+        --barcodeB_whitelist "$barcode_b_whitelist_path" \
         --core "$cores" \
         --batch_size "$preprocess_batch_size" \
         --compression_level "$compression_level" \
@@ -245,8 +241,8 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --barcode_umi_reads "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
         --darlin_reads "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
         --output_path "$results" --darlin "$cutadapt" \
-        --barcodeA_whitelist "$whitelist_path" \
-        --barcodeB_whitelist "$whitelist_path" \
+        --barcodeA_whitelist "$barcode_a_whitelist_path" \
+        --barcodeB_whitelist "$barcode_b_whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \
         --x-spots-number "$x_spots_number" \

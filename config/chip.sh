@@ -24,7 +24,8 @@ apply_chip_preset() {
             y_spots_number=50
             length_spot=50
             interval=50
-            whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
+            barcode_a_whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
+            barcode_b_whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
 
             ;;
         50-20)
@@ -33,7 +34,8 @@ apply_chip_preset() {
             y_spots_number=50
             length_spot=20
             interval=20
-            whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
+            barcode_a_whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
+            barcode_b_whitelist_path="$REPO_DIR/docs/barcodes/barcodes.tsv"
 
             ;;
         100-20)
@@ -42,7 +44,8 @@ apply_chip_preset() {
             y_spots_number=100
             length_spot=20
             interval=20
-            whitelist_path="$REPO_DIR/docs/barcodes/barcodes100.tsv"
+            barcode_a_whitelist_path="$REPO_DIR/docs/barcodes/barcodes100.tsv"
+            barcode_b_whitelist_path="$REPO_DIR/docs/barcodes/barcodes100.tsv"
 
             ;;
         *)

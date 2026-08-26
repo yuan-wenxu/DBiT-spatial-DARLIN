@@ -25,7 +25,8 @@ if [[ -z ${mrna_fastq_path:-} || -z ${genome_dir:-} ]]; then
     echo "Error: mrna_fastq_path and genome_dir must be set in the QC config." >&2
     exit 1
 fi
-for variable in x_spots_number y_spots_number length_spot interval whitelist_path; do
+for variable in x_spots_number y_spots_number length_spot interval \
+    barcode_a_whitelist_path barcode_b_whitelist_path; do
     if [[ -z ${!variable:-} ]]; then
         echo "Run this script through dbit.sh so --chip is resolved." >&2
         exit 1
@@ -183,8 +184,8 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
         run_pixi python "$PYTHON_DIR/preprocess.py" \
             --reads1 "$step1_r1" --reads2 "$step1_r2" \
             --output "$step1_out" --sample "$sample_name" \
-            --barcodeA_whitelist "$whitelist_path" \
-            --barcodeB_whitelist "$whitelist_path" \
+            --barcodeA_whitelist "$barcode_a_whitelist_path" \
+            --barcodeB_whitelist "$barcode_b_whitelist_path" \
             --compression_level "$compression_level" \
             --mm_rate "$mm_rate" \
             --linker1 "$linker1" --linker2 "$linker2" \
@@ -305,8 +306,8 @@ for r1 in "$fastq_path"/*_R1.fq.gz; do
     fi
     run_pixi python "$PYTHON_DIR/mrna.py" \
         --file_path "$final_results/Solo.out" \
-        --barcodeA_whitelist "$whitelist_path" \
-        --barcodeB_whitelist "$whitelist_path" \
+        --barcodeA_whitelist "$barcode_a_whitelist_path" \
+        --barcodeB_whitelist "$barcode_b_whitelist_path" \
         --umi_min "$umi_min" --gene_min "$gene_min" --min_cells "$min_cells" \
         --cb-len "$soloCBlen" \
         --x_spots_number "$x_spots_number" --y_spots_number "$y_spots_number" \

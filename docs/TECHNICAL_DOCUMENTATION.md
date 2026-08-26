@@ -28,9 +28,9 @@ script/Clone_Analysis/clone.sh
 `dbit.sh` launches one step locally or through SLURM. It stores resolved input
 and result paths, chip selection, orientation, and selected command-line
 overrides in a per-dataset config so later steps can reuse them. Chip grid
-dimensions and whitelist selection are resolved centrally by the launcher and
-exported to worker scripts. Python commands run through the appropriate Pixi
-environment.
+dimensions and barcode A/B whitelist paths are resolved centrally by the
+launcher and exported separately to worker scripts. Python commands run through
+the appropriate Pixi environment.
 
 ## 2. Shared Concepts
 

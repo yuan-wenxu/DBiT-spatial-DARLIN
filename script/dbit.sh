@@ -486,7 +486,8 @@ if [[ -n "$selected_chip" ]]; then
         exit 1
     }
 fi
-export chip x_spots_number y_spots_number length_spot interval whitelist_path
+export chip x_spots_number y_spots_number length_spot interval
+export barcode_a_whitelist_path barcode_b_whitelist_path
 
 case "$step" in
     mrna)
@@ -544,7 +545,7 @@ sbatch_args=(
     --time="$walltime"
     -o "$sbatch_output"
     -e "$sbatch_error"
-    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,DOMAIN_SCRIPT_DIR=$DOMAIN_SCRIPT_DIR,SATURATION_SCRIPT_DIR=$SATURATION_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,whitelist_path=$whitelist_path"
+    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,DOMAIN_SCRIPT_DIR=$DOMAIN_SCRIPT_DIR,SATURATION_SCRIPT_DIR=$SATURATION_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,barcode_a_whitelist_path=$barcode_a_whitelist_path,barcode_b_whitelist_path=$barcode_b_whitelist_path"
 )
 if [[ "${sbatch_requeue:-false}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1)$ ]]; then
     sbatch_args+=(--requeue)

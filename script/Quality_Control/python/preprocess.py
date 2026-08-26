@@ -13,7 +13,6 @@ from utils import iter_fastq, open_text, read_nonempty_lines
 
 BARCODE_LEN = None
 UMI_LEN = None
-DEFAULT_LINKER_WINDOW = 2
 DEFAULT_BATCH_SIZE = 50000
 Match = namedtuple("Match", ["start", "end"])
 BatchResult = namedtuple("BatchResult", ["r1_records", "r2_records", "n_reads", "n_reads_passed", "exact_match_stats", "fuzzy_match_stats"])
@@ -74,31 +73,21 @@ def iter_paired_fastq_batches(r1_handle, r2_handle, batch_size):
         yield batch
 
 
-def get_search_window(seq_len, expected_start, pattern_len, window):
-    start = max(0, expected_start - window)
-    end = min(seq_len, expected_start + pattern_len + window)
-    return start, end
-
-
-def find_exact_match_near(seq_str, pattern, expected_start, window):
-    """Return one exact match in the expected window, or [] if none/ambiguous."""
-    window_start, window_end = get_search_window(len(seq_str), expected_start, len(pattern), window)
-    sub_seq = seq_str[window_start:window_end]
-    first = sub_seq.find(pattern)
+def find_exact_matches(seq_str, pattern):
+    """Return one exact match in the full sequence, or [] if none/ambiguous."""
+    first = seq_str.find(pattern)
     if first == -1:
         return []
-    second = sub_seq.find(pattern, first + 1)
+    second = seq_str.find(pattern, first + 1)
     if second != -1:
         return []
-    start = window_start + first
-    return [Match(start, start + len(pattern))]
+    return [Match(first, first + len(pattern))]
 
 
-def find_fuzzy_matches_near(seq_str, pattern, max_errors, expected_start, window):
-    """Fallback fuzzy matching in a small window around the expected linker position."""
-    window_start, window_end = get_search_window(len(seq_str), expected_start, len(pattern), window)
-    matches = find_near_matches(pattern, seq_str[window_start:window_end], max_l_dist=max_errors)
-    return [Match(window_start + match.start, window_start + match.end) for match in matches]
+def find_fuzzy_matches(seq_str, pattern, max_errors):
+    """Return all fuzzy matches in the full sequence."""
+    matches = find_near_matches(pattern, seq_str, max_l_dist=max_errors)
+    return [Match(match.start, match.end) for match in matches]
 
 
 class MatchResult:
@@ -110,11 +99,10 @@ class MatchResult:
         self.match_stats = [-1, -1, -1]  # [all, linker1, linker2], 0 represents fuzzy, 1 represents exact
 
 
-def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_window=DEFAULT_LINKER_WINDOW):
+def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm):
     """
     Try exact matches first; fall back to fuzzy per element if needed.
-    Linker positions are searched only near the expected DBiT amplicon layout:
-    barcodeB, linker2, barcodeA, linker1, UMI.
+    Search the full read for each linker.
     Require exactly one hit for each element.
     """
     result = MatchResult()
@@ -122,28 +110,24 @@ def find_all_matches(seq_str, linker1, linker2, linker1_mm, linker2_mm, linker_w
     mixed_success = True
     methods_used = []
 
-    # linker2 starts immediately after barcodeB.
-    linker2_expected_start = BARCODE_LEN
-    result.linker2_matches = find_exact_match_near(seq_str, linker2, linker2_expected_start, linker_window)
+    result.linker2_matches = find_exact_matches(seq_str, linker2)
     if len(result.linker2_matches) == 1:
         methods_used.append('exact')
         result.match_stats[2] = 1
     else:
-        result.linker2_matches = find_fuzzy_matches_near(seq_str, linker2, linker2_mm, linker2_expected_start, linker_window)
+        result.linker2_matches = find_fuzzy_matches(seq_str, linker2, linker2_mm)
         methods_used.append('fuzzy')
         result.match_stats[2] = 0
         if len(result.linker2_matches) != 1:
             mixed_success = False
 
-    # linker1 starts immediately after barcodeA.
     if mixed_success:
-        linker1_expected_start = result.linker2_matches[0].end + BARCODE_LEN
-        result.linker1_matches = find_exact_match_near(seq_str, linker1, linker1_expected_start, linker_window)
+        result.linker1_matches = find_exact_matches(seq_str, linker1)
         if len(result.linker1_matches) == 1:
             methods_used.append('exact')
             result.match_stats[1] = 1
         else:
-            result.linker1_matches = find_fuzzy_matches_near(seq_str, linker1, linker1_mm, linker1_expected_start, linker_window)
+            result.linker1_matches = find_fuzzy_matches(seq_str, linker1, linker1_mm)
             methods_used.append('fuzzy')
             result.match_stats[1] = 0
             if len(result.linker1_matches) != 1:

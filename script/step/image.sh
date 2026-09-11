@@ -189,9 +189,9 @@ if [[ -n ${mrna_dir:-} ]]; then
     fi
     mkdir -p "$mrna_matrix_dir" || exit 1
     cp -f -- "$tissue_positions_path" "$mrna_matrix_dir/tissue_positions.tsv.gz" || exit 1
-    cp -f -- "$grayscale_image_path" "$mrna_matrix_dir/fullres_grayscale.png" || exit 1
+    cp -f -- "$grayscale_image_path" "$mrna_matrix_dir/tissue_raw_image.png" || exit 1
     echo "Copied tissue positions: $mrna_matrix_dir/tissue_positions.tsv.gz"
-    echo "Copied grayscale image: $mrna_matrix_dir/fullres_grayscale.png"
+    echo "Copied grayscale image: $mrna_matrix_dir/tissue_raw_image.png"
 fi
 
 if [[ -n ${mrna_dir:-} ]]; then

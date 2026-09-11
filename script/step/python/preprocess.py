@@ -1,5 +1,5 @@
-import gzip
 import argparse
+import gzip
 from collections import namedtuple
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import zip_longest
@@ -9,7 +9,30 @@ import time
 from fuzzysearch import find_near_matches
 from tqdm import tqdm
 
-from utils import iter_fastq, open_text, read_nonempty_lines
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Preprocess FASTQ files", add_help=False
+    )
+    parser.add_argument("--help", action="help", help="Show this help message and exit")
+    parser.add_argument("--reads1", required=True, help="Path to R1 FASTQ")
+    parser.add_argument("--reads2", required=True, help="Path to R2 FASTQ")
+    parser.add_argument("--output", required=True, help="Output directory")
+    parser.add_argument("--core", type=int, default=8, help="Number of worker processes")
+    parser.add_argument("--sample", required=True, help="Sample name")
+    parser.add_argument("--compression_level", type=int, default=6, help="Gzip compression level")
+    parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE, help="Read pairs per worker batch")
+    parser.add_argument("--gzip_output", type=str_to_bool, default=True, help="Compress extracted FASTQs")
+    parser.add_argument("--linker1", default="GTGGCCGATGTTTCGCATCGGCGTACGACT", help="Linker 1 sequence")
+    parser.add_argument("--linker2", default="ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help="Linker 2 sequence")
+    parser.add_argument("--mm_rate", type=float, default=0.05, help="Linker mismatch rate")
+    parser.add_argument("--barcodeA_whitelist", help="Barcode A whitelist")
+    parser.add_argument("--barcodeB_whitelist", help="Barcode B whitelist")
+    parser.add_argument("--correct_barcode", type=str_to_bool, default=False, help="Correct barcodes")
+    parser.add_argument("--cb_len", type=int, required=True, help="Concatenated cell-barcode length")
+    parser.add_argument("--umi_len", type=int, required=True, help="UMI length")
+    return parser.parse_args()
+
 
 BARCODE_LEN = None
 UMI_LEN = None
@@ -18,6 +41,41 @@ Match = namedtuple("Match", ["start", "end"])
 BatchResult = namedtuple("BatchResult", ["r1_records", "r2_records", "n_reads", "n_reads_passed", "exact_match_stats", "fuzzy_match_stats"])
 
 WORKER_CONTEXT = None
+
+
+def open_text(path, mode="rt"):
+    path = str(path)
+    if path.endswith(".gz"):
+        return gzip.open(path, mode)
+    return open(path, mode, encoding="utf-8")
+
+
+def read_nonempty_lines(path) -> list[str]:
+    with open_text(path) as handle:
+        return [line.strip() for line in handle if line.strip()]
+
+
+def iter_fastq(handle):
+    while True:
+        id_line = handle.readline()
+        if not id_line:
+            break
+        sequence_line = handle.readline()
+        plus_line = handle.readline()
+        quality_line = handle.readline()
+        if not (sequence_line and plus_line and quality_line):
+            raise ValueError("Incomplete FASTQ record encountered.")
+        if not id_line.startswith("@") or not plus_line.startswith("+"):
+            raise ValueError("Invalid FASTQ structure (missing @ or + line).")
+        read_id = id_line[1:].strip()
+        sequence = sequence_line.strip()
+        quality = quality_line.strip()
+        if len(sequence) != len(quality):
+            raise ValueError(
+                f"Length mismatch (seq {len(sequence)} vs qual {len(quality)}) "
+                f"at read {read_id}"
+            )
+        yield read_id, sequence, quality
 
 
 def str_to_bool(value):
@@ -432,30 +490,6 @@ def run_preprocess(
         umi_len,
     )
     print(output_path)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Preprocess FASTQ files", add_help=False
-    )
-    parser.add_argument("--help", action="help", help="Show this help message and exit")
-    parser.add_argument("--reads1", required=True, help="Path to R1 FASTQ")
-    parser.add_argument("--reads2", required=True, help="Path to R2 FASTQ")
-    parser.add_argument("--output", required=True, help="Output directory")
-    parser.add_argument("--core", type=int, default=8, help="Number of worker processes")
-    parser.add_argument("--sample", required=True, help="Sample name")
-    parser.add_argument("--compression_level", type=int, default=6, help="Gzip compression level")
-    parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE, help="Read pairs per worker batch")
-    parser.add_argument("--gzip_output", type=str_to_bool, default=True, help="Compress extracted FASTQs")
-    parser.add_argument("--linker1", default="GTGGCCGATGTTTCGCATCGGCGTACGACT", help="Linker 1 sequence")
-    parser.add_argument("--linker2", default="ATCCACGTGCTTGAGAGGCCAGAGCATTCG", help="Linker 2 sequence")
-    parser.add_argument("--mm_rate", type=float, default=0.05, help="Linker mismatch rate")
-    parser.add_argument("--barcodeA_whitelist", help="Barcode A whitelist")
-    parser.add_argument("--barcodeB_whitelist", help="Barcode B whitelist")
-    parser.add_argument("--correct_barcode", type=str_to_bool, default=False, help="Correct barcodes")
-    parser.add_argument("--cb_len", type=int, required=True, help="Concatenated cell-barcode length")
-    parser.add_argument("--umi_len", type=int, required=True, help="UMI length")
-    return parser.parse_args()
 
 
 def main():

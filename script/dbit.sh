@@ -5,12 +5,10 @@ SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}") || exit 1
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd) || exit 1
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd) || exit 1
 START_DIR=$(pwd -P) || exit 1
-QC_SCRIPT_DIR="$SCRIPT_DIR/Quality_Control"
-LR_SCRIPT_DIR="$SCRIPT_DIR/Clone_Analysis"
-SATURATION_SCRIPT_DIR="$SCRIPT_DIR/Saturation"
+STEP_SCRIPT_DIR="$SCRIPT_DIR/step"
 PROGRAM_NAME=$(basename "$0")
 CHIP_FILE="$REPO_DIR/config/chip.sh"
-export QC_SCRIPT_DIR REPO_DIR LR_SCRIPT_DIR SATURATION_SCRIPT_DIR
+export STEP_SCRIPT_DIR REPO_DIR
 
 if [[ ! -f "$CHIP_FILE" ]]; then
     echo "Error: chip preset file not found: $CHIP_FILE" >&2
@@ -27,10 +25,8 @@ Steps:
   init          Initialize or display configuration in the current directory
   mrna          Process transcriptome FASTQs and run spatial mRNA QC
   saturation    Downsample mRNA FASTQs and run mRNA QC at each fraction
-  amplicon      Process DARLIN amplicon FASTQs
-  image         Segment a registered image and count cells
-  filter        Apply the tissue mask and generate filtered plots
-  clone         Filter and plot clone-analysis results
+  darlin        Process DARLIN FASTQs
+  image         Create a tissue mask and apply tissue filtering
 
 Run '$PROGRAM_NAME <step> -h' to show parameters for one step.
 EOF
@@ -59,13 +55,13 @@ Optional:
 EOF
 }
 
-show_amplicon_help() {
+show_darlin_help() {
     cat <<EOF
-Usage: $PROGRAM_NAME amplicon [--config <file>] [options]
+Usage: $PROGRAM_NAME darlin [--config <file>] [options]
 
 Optional:
   --config <file>                                 Configuration file (default: ./dbit.config.sh)
-  --input <path>                                  Amplicon FASTQ directory; required only before stored
+  --input <path>                                  DARLIN FASTQ directory; required only before stored
   --chip <name>                                   $(chip_preset_names_csv); required only before stored
   --initial-reads-cutoff <int>                    Non-negative reads cutoff for initial filtering (default: 100)
   --major-fraction-threshold-molecule <float>     Major-molecule reads fraction from 0 to 1 (default: 0.8)
@@ -94,34 +90,8 @@ Usage: $PROGRAM_NAME image [--config <file>] [options]
 
 Optional:
   --config <file>         Configuration file (default: ./dbit.config.sh)
-  --input <path>          Registered input image; required only before stored
-  --orientation <mode>    normal, horizontal, vertical, or rotate; required only before stored
-  --swap-xy <bool>        True or False (case-insensitive); required only before stored
-
-90-degree rotation combinations:
-  --orientation horizontal --swap-xy True    90 degrees counterclockwise
-  --orientation vertical   --swap-xy True    90 degrees clockwise
-EOF
-}
-
-show_filter_help() {
-    cat <<EOF
-Usage: $PROGRAM_NAME filter [--config <file>]
-
-Optional:
-  --config <file>   Configuration file (default: ./dbit.config.sh)
-EOF
-}
-
-show_clone_help() {
-    cat <<EOF
-Usage: $PROGRAM_NAME clone [--config <file>] [options]
-
-Optional:
-  --config <file>      Configuration file (default: ./dbit.config.sh)
-  --labels <list>      Comma-separated labels (default: CA,RA,TA)
-  --top-n <int>        Positive number of LR plots per label (default: 10)
-  --rotate <degrees>   Clockwise grid rotation for display: 0, 90, 180, or 270
+  --input <path>          Full-resolution image; adjacent mask.png defines the frame
+  --chip <name>           $(chip_preset_names_csv); required only before stored
 EOF
 }
 
@@ -130,10 +100,8 @@ show_step_help() {
         init) show_init_help ;;
         mrna) show_mrna_help ;;
         saturation) show_saturation_help ;;
-        amplicon) show_amplicon_help ;;
+        darlin) show_darlin_help ;;
         image) show_image_help ;;
-        filter) show_filter_help ;;
-        clone) show_clone_help ;;
     esac
 }
 
@@ -142,16 +110,16 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then show_help; exit 0; f
 step=$1
 if [[ ${2:-} == -h || ${2:-} == --help ]]; then
     case "$step" in
-        init|mrna|saturation|amplicon|image|filter|clone) show_step_help "$step"; exit 0 ;;
+        init|mrna|saturation|darlin|image) show_step_help "$step"; exit 0 ;;
     esac
 fi
 shift
 
 case "$step" in
-    init|mrna|saturation|amplicon|image|filter|clone) ;;
+    init|mrna|saturation|darlin|image) ;;
     *)
         echo "Error: unsupported step '$step'." >&2
-        echo "Valid steps: init, mrna, saturation, amplicon, image, filter, clone." >&2
+        echo "Valid steps: init, mrna, saturation, darlin, image." >&2
         exit 1
         ;;
 esac
@@ -197,11 +165,6 @@ cli_major_fraction_threshold_molecule=""
 cli_reads_fraction_mode=""
 cli_reads_cutoff=""
 cli_slope_cutoff=""
-cli_orientation=""
-cli_swap_xy=""
-cli_clone_labels=""
-cli_top_n=""
-cli_rotate=""
 cli_saturation_fractions=""
 
 require_step_option() {
@@ -217,23 +180,18 @@ require_step_option() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --config) require_step_option "$1" mrna saturation amplicon image filter clone; require_option_value "$@"; config_file=$2; shift 2 ;;
-        --input) require_step_option "$1" mrna amplicon image; require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
-        --chip) require_step_option "$1" mrna amplicon; require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
+        --config) require_step_option "$1" mrna saturation darlin image; require_option_value "$@"; config_file=$2; shift 2 ;;
+        --input) require_step_option "$1" mrna darlin image; require_option_value "$@"; input_path=$2; input_from_cli=true; shift 2 ;;
+        --chip) require_step_option "$1" mrna darlin image; require_option_value "$@"; selected_chip=$2; chip_from_cli=true; shift 2 ;;
         --umi-min) require_step_option "$1" mrna; require_option_value "$@"; cli_umi_min=$2; shift 2 ;;
         --gene-min) require_step_option "$1" mrna; require_option_value "$@"; cli_gene_min=$2; shift 2 ;;
         --min-cell) require_step_option "$1" mrna; require_option_value "$@"; cli_min_cell=$2; shift 2 ;;
         --fractions) require_step_option "$1" saturation; require_option_value "$@"; cli_saturation_fractions=$2; shift 2 ;;
-        --initial-reads-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_initial_reads_cutoff=$2; shift 2 ;;
-        --major-fraction-threshold-molecule) require_step_option "$1" amplicon; require_option_value "$@"; cli_major_fraction_threshold_molecule=$2; shift 2 ;;
-        --reads-fraction-mode) require_step_option "$1" amplicon; require_option_value "$@"; cli_reads_fraction_mode=$2; shift 2 ;;
-        --reads-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_reads_cutoff=$2; shift 2 ;;
-        --slope-cutoff) require_step_option "$1" amplicon; require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
-        --orientation) require_step_option "$1" image; require_option_value "$@"; cli_orientation=$2; shift 2 ;;
-        --swap-xy) require_step_option "$1" image; require_option_value "$@"; cli_swap_xy=$2; shift 2 ;;
-        --labels) require_step_option "$1" clone; require_option_value "$@"; cli_clone_labels=$2; shift 2 ;;
-        --top-n) require_step_option "$1" clone; require_option_value "$@"; cli_top_n=$2; shift 2 ;;
-        --rotate) require_step_option "$1" clone; require_option_value "$@"; cli_rotate=$2; shift 2 ;;
+        --initial-reads-cutoff) require_step_option "$1" darlin; require_option_value "$@"; cli_initial_reads_cutoff=$2; shift 2 ;;
+        --major-fraction-threshold-molecule) require_step_option "$1" darlin; require_option_value "$@"; cli_major_fraction_threshold_molecule=$2; shift 2 ;;
+        --reads-fraction-mode) require_step_option "$1" darlin; require_option_value "$@"; cli_reads_fraction_mode=$2; shift 2 ;;
+        --reads-cutoff) require_step_option "$1" darlin; require_option_value "$@"; cli_reads_cutoff=$2; shift 2 ;;
+        --slope-cutoff) require_step_option "$1" darlin; require_option_value "$@"; cli_slope_cutoff=$2; shift 2 ;;
         -h|--help) show_step_help "$step"; exit 0 ;;
         *) echo "Error: unknown option or argument '$1'." >&2; exit 1 ;;
     esac
@@ -292,6 +250,26 @@ validate_fraction() {
     fi
 }
 
+validate_single_mrna_fastq_pair() {
+    local input_dir=$1
+    local -a r1_files=()
+    local r2_file
+
+    mapfile -d '' -t r1_files < <(
+        find "$input_dir" -maxdepth 1 -type f -name '*_R1.fq.gz' -print0
+    )
+    if (( ${#r1_files[@]} != 1 )); then
+        echo "Error: mRNA FASTQ directory must contain exactly one *_R1.fq.gz file; found ${#r1_files[@]} in $input_dir." >&2
+        exit 1
+    fi
+
+    r2_file="${r1_files[0]%_R1.fq.gz}_R2.fq.gz"
+    if [[ ! -f "$r2_file" ]]; then
+        echo "Error: matching mRNA R2 file not found: $r2_file" >&2
+        exit 1
+    fi
+}
+
 validate_nonnegative_integer --umi-min "$cli_umi_min"
 validate_nonnegative_integer --gene-min "$cli_gene_min"
 validate_positive_integer --min-cell "$cli_min_cell"
@@ -299,7 +277,6 @@ validate_nonnegative_integer --initial-reads-cutoff "$cli_initial_reads_cutoff"
 validate_fraction --major-fraction-threshold-molecule "$cli_major_fraction_threshold_molecule"
 validate_nonnegative_integer --reads-cutoff "$cli_reads_cutoff"
 validate_nonnegative_number --slope-cutoff "$cli_slope_cutoff"
-validate_positive_integer --top-n "$cli_top_n"
 if [[ -n "$cli_saturation_fractions" ]]; then
     IFS=',' read -ra saturation_fraction_values <<< "$cli_saturation_fractions"
     if [[ ${#saturation_fraction_values[@]} -eq 0 ]]; then
@@ -314,15 +291,6 @@ if [[ -n "$cli_saturation_fractions" ]]; then
             exit 1
         fi
     done
-fi
-if [[ -n "$cli_rotate" ]]; then
-    case "$cli_rotate" in
-        0|90|180|270) ;;
-        *)
-            echo "Error: --rotate must be 0, 90, 180, or 270; got '$cli_rotate'." >&2
-            exit 1
-            ;;
-    esac
 fi
 if [[ -n "$cli_reads_fraction_mode" ]]; then
     case "$cli_reads_fraction_mode" in
@@ -366,11 +334,11 @@ stored_input=""
 case "$step" in
     mrna) stored_input=${mrna_fastq_path:-} ;;
     saturation) stored_input=${mrna_fastq_path:-} ;;
-    amplicon) stored_input=${amplicon_fastq_path:-} ;;
+    darlin) stored_input=${darlin_fastq_path:-} ;;
     image) stored_input=${image_path:-} ;;
 esac
 [[ -n "$input_path" ]] || input_path=$stored_input
-if [[ "$step" =~ ^(mrna|saturation|amplicon|image)$ && -z "$input_path" ]]; then
+if [[ "$step" =~ ^(mrna|saturation|darlin|image)$ && -z "$input_path" ]]; then
     if [[ "$step" == saturation ]]; then
         echo "Error: mrna_fastq_path is not stored in $config_abs; run 'dbit mrna --input <fastq_dir>' first." >&2
     else
@@ -384,59 +352,27 @@ if [[ "$step" == mrna ]]; then
         exit 1
     fi
 fi
-if [[ "$step" == image ]]; then
-    effective_orientation=${cli_orientation:-${orientation:-}}
-    effective_swap_xy=${cli_swap_xy:-${swap_xy:-}}
-    if [[ -z "$effective_orientation" || -z "$effective_swap_xy" ]]; then
-        echo "Error: --orientation and --swap-xy are required the first time; no values are stored in $config_abs." >&2
-        exit 1
-    fi
-    case "$effective_orientation" in
-        normal|horizontal|vertical|rotate) ;;
-        *)
-            echo "Error: --orientation must be normal, horizontal, vertical, or rotate; got '$effective_orientation'." >&2
-            exit 1
-            ;;
-    esac
-    case "${effective_swap_xy,,}" in
-        true) effective_swap_xy=True ;;
-        false) effective_swap_xy=False ;;
-        *)
-            echo "Error: --swap-xy must be True or False; got '$effective_swap_xy'." >&2
-            exit 1
-            ;;
-    esac
-fi
-if [[ "$step" == mrna || "$step" == saturation || "$step" == amplicon || "$step" == image ]]; then
+if [[ "$step" == mrna || "$step" == saturation || "$step" == darlin || "$step" == image ]]; then
     input_abs=$(realpath -m "$input_path")
 fi
 
 case "$step" in
     mrna)
-        first_r1=$(find "$input_abs" -maxdepth 1 -type f -name '*_R1.fq.gz' -print -quit)
-        if [[ -z "$first_r1" ]]; then
-            echo "Error: no *_R1.fq.gz file found in $input_abs" >&2
-            exit 1
-        fi
+        validate_single_mrna_fastq_pair "$input_abs"
         output_path=$(dirname "$input_abs")
         if $input_from_cli; then
             set_config_value mrna_fastq_path "$input_abs"
             set_config_value mrna_output_path "$output_path"
             set_config_value mrna_dir "$output_path/results/Solo.out/GeneFull"
-            set_config_value cluster_csv "$output_path/results/Solo.out/GeneFull/raw/data_tissuefiltered.csv"
         fi
         [[ -n "$cli_umi_min" ]] && set_config_value umi_min "$cli_umi_min"
         [[ -n "$cli_gene_min" ]] && set_config_value gene_min "$cli_gene_min"
         [[ -n "$cli_min_cell" ]] && set_config_value min_cells "$cli_min_cell"
         ;;
     saturation)
-        first_r1=$(find "$input_abs" -maxdepth 1 -type f -name '*_R1.fq.gz' -print -quit)
-        if [[ -z "$first_r1" ]]; then
-            echo "Error: no *_R1.fq.gz file found in $input_abs" >&2
-            exit 1
-        fi
+        validate_single_mrna_fastq_pair "$input_abs"
         ;;
-    amplicon)
+    darlin)
         first_r1=$(find "$input_abs" -maxdepth 1 -type f -name '*_R1.fq.gz' -print -quit)
         if [[ -z "$first_r1" ]]; then
             echo "Error: no *_R1.fq.gz file found in $input_abs" >&2
@@ -444,9 +380,9 @@ case "$step" in
         fi
         output_path=$(dirname "$input_abs")
         if $input_from_cli; then
-            set_config_value amplicon_fastq_path "$input_abs"
-            set_config_value amplicon_output_path "$output_path"
-            set_config_value amp_dir "$output_path/results"
+            set_config_value darlin_fastq_path "$input_abs"
+            set_config_value darlin_output_path "$output_path"
+            set_config_value darlin_dir "$output_path/results"
         fi
         [[ -n "$cli_initial_reads_cutoff" ]] && set_config_value initial_reads_cutoff "$cli_initial_reads_cutoff"
         [[ -n "$cli_major_fraction_threshold_molecule" ]] && set_config_value major_fraction_threshold_molecule "$cli_major_fraction_threshold_molecule"
@@ -456,20 +392,14 @@ case "$step" in
         ;;
     image)
         output_path=$(dirname "$input_abs")
-        if $input_from_cli; then
+        if $input_from_cli || [[ -z ${tissue_positions_file:-} || -z ${fullres_image_path:-} || -z ${frame_mask_file:-} ]]; then
             set_config_value image_path "$input_abs"
             set_config_value image_result_path "$output_path"
-            set_config_value cell_number_file "$output_path/filtered_results.csv"
+            set_config_value frame_mask_file "$output_path/mask.png"
+            set_config_value tissue_positions_file "$output_path/tissue_positions.tsv.gz"
             set_config_value tissue_mask_file "$output_path/tissue_mask.png"
-            set_config_value gray_path "$output_path/gray.png"
+            set_config_value fullres_image_path "$input_abs"
         fi
-        [[ -n "$cli_orientation" ]] && set_config_value orientation "$cli_orientation"
-        [[ -n "$cli_swap_xy" ]] && set_config_value swap_xy "$effective_swap_xy"
-        ;;
-    clone)
-        [[ -n "$cli_clone_labels" ]] && set_config_value clone_labels "$cli_clone_labels"
-        [[ -n "$cli_top_n" ]] && set_config_value clone_top_n "$cli_top_n"
-        [[ -n "$cli_rotate" ]] && set_config_value rotate "$cli_rotate"
         ;;
 esac
 
@@ -491,34 +421,24 @@ export barcode_a_whitelist_path barcode_b_whitelist_path
 
 case "$step" in
     mrna)
-        script="$QC_SCRIPT_DIR/mrna.sh"
+        script="$STEP_SCRIPT_DIR/mrna.sh"
         cpus=$sbatch_mrna_cpus; partition=$sbatch_mrna_partition
         memory=$sbatch_mrna_mem; walltime=$sbatch_mrna_time
         ;;
     saturation)
-        script="$SATURATION_SCRIPT_DIR/saturation.sh"
+        script="$STEP_SCRIPT_DIR/saturation.sh"
         cpus=$sbatch_mrna_cpus; partition=$sbatch_mrna_partition
         memory=$sbatch_mrna_mem; walltime=$sbatch_mrna_time
         ;;
-    amplicon)
-        script="$QC_SCRIPT_DIR/amplicon.sh"
-        cpus=$sbatch_amplicon_cpus; partition=$sbatch_amplicon_partition
-        memory=$sbatch_amplicon_mem; walltime=$sbatch_amplicon_time
+    darlin)
+        script="$STEP_SCRIPT_DIR/darlin.sh"
+        cpus=$sbatch_darlin_cpus; partition=$sbatch_darlin_partition
+        memory=$sbatch_darlin_mem; walltime=$sbatch_darlin_time
         ;;
     image)
-        script="$QC_SCRIPT_DIR/image.sh"
+        script="$STEP_SCRIPT_DIR/image.sh"
         cpus=$sbatch_image_cpus; partition=$sbatch_image_partition
         memory=$sbatch_image_mem; walltime=$sbatch_image_time
-        ;;
-    filter)
-        script="$QC_SCRIPT_DIR/filter.sh"
-        cpus=$sbatch_filter_cpus; partition=$sbatch_filter_partition
-        memory=$sbatch_filter_mem; walltime=$sbatch_filter_time
-        ;;
-    clone)
-        script="$LR_SCRIPT_DIR/clone.sh"
-        cpus=${sbatch_clone_cpus}; partition=${sbatch_clone_partition}
-        memory=${sbatch_clone_mem}; walltime=${sbatch_clone_time}
         ;;
 esac
 
@@ -545,7 +465,7 @@ sbatch_args=(
     --time="$walltime"
     -o "$sbatch_output"
     -e "$sbatch_error"
-    --export="ALL,QC_SCRIPT_DIR=$QC_SCRIPT_DIR,LR_SCRIPT_DIR=$LR_SCRIPT_DIR,DOMAIN_SCRIPT_DIR=$DOMAIN_SCRIPT_DIR,SATURATION_SCRIPT_DIR=$SATURATION_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,barcode_a_whitelist_path=$barcode_a_whitelist_path,barcode_b_whitelist_path=$barcode_b_whitelist_path"
+    --export="ALL,STEP_SCRIPT_DIR=$STEP_SCRIPT_DIR,REPO_DIR=$REPO_DIR,chip=$chip,x_spots_number=$x_spots_number,y_spots_number=$y_spots_number,length_spot=$length_spot,interval=$interval,barcode_a_whitelist_path=$barcode_a_whitelist_path,barcode_b_whitelist_path=$barcode_b_whitelist_path"
 )
 if [[ "${sbatch_requeue:-false}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1)$ ]]; then
     sbatch_args+=(--requeue)

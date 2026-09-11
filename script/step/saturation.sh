@@ -1,9 +1,8 @@
 #!/bin/bash
 set -o pipefail
 
-SCRIPT_DIR=${SATURATION_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+SCRIPT_DIR=${STEP_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
-QC_SCRIPT_DIR=${QC_SCRIPT_DIR:-$REPO_DIR/script/Quality_Control}
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then echo "Error: expected a config file and optional fractions" >&2; exit 1; fi
 
@@ -36,8 +35,8 @@ if [[ ! -d "$fastq_path" ]]; then
     echo "Error: mRNA FASTQ directory does not exist: $fastq_path" >&2
     exit 1
 fi
-if [[ ! -f "$QC_SCRIPT_DIR/mrna.sh" ]]; then
-    echo "Error: mRNA worker script not found: $QC_SCRIPT_DIR/mrna.sh" >&2
+if [[ ! -f "$SCRIPT_DIR/mrna.sh" ]]; then
+    echo "Error: mRNA worker script not found: $SCRIPT_DIR/mrna.sh" >&2
     exit 1
 fi
 IFS=',' read -ra fraction_array <<< "$fractions"
@@ -128,7 +127,7 @@ for fraction_label in "${fraction_labels[@]}"; do
     fi
 
     echo "Running mRNA pipeline for fraction $fraction_label"
-    bash "$QC_SCRIPT_DIR/mrna.sh" "$fraction_config" || {
+    bash "$SCRIPT_DIR/mrna.sh" "$fraction_config" || {
         echo "Error: mRNA pipeline failed for fraction $fraction_label." >&2
         exit 1
     }

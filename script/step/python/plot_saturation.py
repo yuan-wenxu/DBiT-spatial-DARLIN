@@ -53,11 +53,13 @@ def summarize_fraction(fraction, data_files, source):
 
 def find_mrna_data(results_dir):
     results_dir = Path(results_dir)
-    direct = results_dir / "Solo.out/GeneFull/raw/data.csv"
+    direct = results_dir / "Solo.out/GeneFull/raw/spatial_metrics.csv"
     if direct.is_file():
         return [direct]
     else:
-        raise FileNotFoundError(f"No mRNA data.csv found in {results_dir}")
+        raise FileNotFoundError(
+            f"No mRNA spatial_metrics.csv found in {results_dir}"
+        )
 
 
 def main():
@@ -77,7 +79,9 @@ def main():
         label = f"{fraction:.2f}"
         data_files = find_mrna_data(input_dir / label / "results")
         if not data_files:
-            raise FileNotFoundError(f"No mRNA data.csv found for fraction {label}")
+            raise FileNotFoundError(
+                f"No mRNA spatial_metrics.csv found for fraction {label}"
+            )
 
         rows[fraction] = summarize_fraction(
             fraction, data_files, source="downsampled"
@@ -86,7 +90,7 @@ def main():
     original_files = find_mrna_data(args.original)
     if not original_files:
         raise FileNotFoundError(
-            f"No original mRNA data.csv found below {args.original}"
+            f"No original mRNA spatial_metrics.csv found below {args.original}"
         )
     rows[1.0] = summarize_fraction(1.0, original_files, source="original")
 

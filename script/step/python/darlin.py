@@ -7,6 +7,7 @@ Input FASTQs are expected to be paired record-by-record:
 """
 
 import argparse
+import gzip
 from pathlib import Path
 
 import matplotlib.patches as mpatches
@@ -15,31 +16,17 @@ import pandas as pd
 from tqdm import tqdm
 from umi_tools import UMIClusterer
 
-from utils import (
-    add_spatial_coordinates,
-    iter_fastq,
-    iter_paired_fastq,
-    open_text,
-    plot_spatial_heatmaps,
-    read_barcode_components,
-)
-
-PRIMARY_COLOR = "#0072B2"
-THRESHOLD_COLOR = "#D55E00"
-
-
-def str_to_bool(value):
-    """Convert common command-line boolean strings to bool."""
-    if isinstance(value, bool):
-        return value
-    if value.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    if value.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value}")
-
 
 def parse_args():
+    def str_to_bool(value):
+        if isinstance(value, bool):
+            return value
+        if value.lower() in ("yes", "true", "t", "y", "1"):
+            return True
+        if value.lower() in ("no", "false", "f", "n", "0"):
+            return False
+        raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value}")
+
     parser = argparse.ArgumentParser(
         description="Convert extracted SB/UB and lineage barcode FASTQs to a DARLIN clone table.",
         add_help=False,
@@ -66,7 +53,7 @@ def parse_args():
         "--output_path",
         required=True,
         type=str,
-        help="Output directory for final.csv and QC plots.",
+        help="Temporary output directory for the processed locus table.",
     )
     parser.add_argument(
         "--barcodeA_whitelist",
@@ -87,22 +74,6 @@ def parse_args():
     )
     parser.add_argument(
         "--ub-len", type=int, required=True, help="Length of UMI barcode."
-    )
-    parser.add_argument(
-        "--x-spots-number",
-        "--x_spots_number",
-        dest="x_spots_number",
-        type=int,
-        default=50,
-        help="Number of spots in x direction.",
-    )
-    parser.add_argument(
-        "--y-spots-number",
-        "--y_spots_number",
-        dest="y_spots_number",
-        type=int,
-        default=50,
-        help="Number of spots in y direction.",
     )
     parser.add_argument(
         "--umi_hd_threshold",
@@ -167,7 +138,7 @@ def parse_args():
 
     if args.darlin and not args.lineage_bc_fq:
         parser.error(
-            "amplicon.py requires --darlin_reads when --darlin is True."
+            "darlin.py requires --darlin_reads when --darlin is True."
         )
     if args.sb_len <= 0 or args.sb_len % 2 != 0:
         parser.error("--sb-len must be a positive even integer.")
@@ -177,6 +148,105 @@ def parse_args():
     args.output_path = Path(args.output_path)
     args.output_path.mkdir(parents=True, exist_ok=True)
     return args
+
+
+PRIMARY_COLOR = "#0072B2"
+THRESHOLD_COLOR = "#D55E00"
+
+
+def open_text(path, mode="rt"):
+    path = str(path)
+    if path.endswith(".gz"):
+        return gzip.open(path, mode)
+    return open(path, mode, encoding="utf-8")
+
+
+def read_nonempty_lines(path) -> list[str]:
+    with open_text(path) as handle:
+        return [line.strip() for line in handle if line.strip()]
+
+
+def iter_fastq(handle):
+    while True:
+        id_line = handle.readline()
+        if not id_line:
+            break
+        sequence_line = handle.readline()
+        plus_line = handle.readline()
+        quality_line = handle.readline()
+        if not (sequence_line and plus_line and quality_line):
+            raise ValueError("Incomplete FASTQ record encountered.")
+        if not id_line.startswith("@") or not plus_line.startswith("+"):
+            raise ValueError("Invalid FASTQ structure (missing @ or + line).")
+        read_id = id_line[1:].strip()
+        sequence = sequence_line.strip()
+        quality = quality_line.strip()
+        if len(sequence) != len(quality):
+            raise ValueError(
+                f"Length mismatch (seq {len(sequence)} vs qual {len(quality)}) "
+                f"at read {read_id}"
+            )
+        yield read_id, sequence, quality
+
+
+def iter_paired_fastq(handle1, handle2):
+    iterator1 = iter_fastq(handle1)
+    iterator2 = iter_fastq(handle2)
+    while True:
+        try:
+            record1 = next(iterator1)
+        except StopIteration:
+            try:
+                next(iterator2)
+            except StopIteration:
+                return
+            raise ValueError("File 1 ended before file 2.")
+        try:
+            record2 = next(iterator2)
+        except StopIteration as error:
+            raise ValueError("File 2 ended before file 1.") from error
+        yield (*record1, *record2)
+
+
+def validate_barcode_length(cb_len: int) -> int:
+    if (
+        not isinstance(cb_len, int)
+        or isinstance(cb_len, bool)
+        or cb_len <= 0
+        or cb_len % 2 != 0
+    ):
+        raise ValueError("cb_len must be a positive even integer")
+    return cb_len // 2
+
+
+def read_barcode_components(whitelist_path) -> list[str]:
+    components = read_nonempty_lines(whitelist_path)
+    if len(components) != len(set(components)):
+        raise ValueError(f"Whitelist contains duplicate barcodes: {whitelist_path}")
+    return components
+
+
+def add_spatial_coordinates(
+    data: pd.DataFrame,
+    barcode_column: str,
+    barcode_a_whitelist_path,
+    cb_len: int,
+    barcode_b_whitelist_path=None,
+) -> pd.DataFrame:
+    component_len = validate_barcode_length(cb_len)
+    barcode_as = read_barcode_components(barcode_a_whitelist_path)
+    barcode_bs = read_barcode_components(
+        barcode_b_whitelist_path or barcode_a_whitelist_path
+    )
+    row_coordinate = {barcode: index for index, barcode in enumerate(barcode_as)}
+    col_coordinate = {barcode: index for index, barcode in enumerate(barcode_bs)}
+    result = data.copy()
+    barcodes = result[barcode_column].astype(str)
+    result["row_bc"] = barcodes.str[component_len:cb_len]
+    result["col_bc"] = barcodes.str[:component_len]
+    result["row"] = result["row_bc"].map(row_coordinate).fillna(-1).astype(int)
+    result["col"] = result["col_bc"].map(col_coordinate).fillna(-1).astype(int)
+    return result
 
 
 def hamming_dist(first, second):
@@ -299,11 +369,6 @@ def add_reads_fraction(data, mode):
     return data
 
 
-def setup_plot_dir(args):
-    args.output_path.mkdir(parents=True, exist_ok=True)
-    return args.output_path
-
-
 def finish_plot(figure, output_file):
     for axis in figure.axes:
         axis.xaxis.label.set_size(10)
@@ -361,8 +426,13 @@ def plot_reads_cutoff_qc(data, reads_cutoff, output_file):
     if not cutoffs:
         return
     total_reads = data["reads"].sum()
-    molecule_counts = [data.loc[data["reads"] >= cutoff, "UB"].nunique() for cutoff in cutoffs]
-    retained = [data.loc[data["reads"] >= cutoff, "reads"].sum() / total_reads for cutoff in cutoffs]
+    molecule_counts = [
+        data.loc[data["reads"] >= cutoff, "UB"].nunique() for cutoff in cutoffs
+    ]
+    retained = [
+        data.loc[data["reads"] >= cutoff, "reads"].sum() / total_reads
+        for cutoff in cutoffs
+    ]
     figure, axes = plt.subplots(2, 1, figsize=(5, 5))
     axes[0].plot(
         cutoffs,
@@ -372,7 +442,12 @@ def plot_reads_cutoff_qc(data, reads_cutoff, output_file):
         linewidth=1,
         color=PRIMARY_COLOR,
     )
-    axes[0].set(xlabel="Reads Cutoff", ylabel="Number of Molecules", xscale="log", yscale="log")
+    axes[0].set(
+        xlabel="Reads Cutoff",
+        ylabel="Number of Molecules",
+        xscale="log",
+        yscale="log",
+    )
     axes[1].plot(
         cutoffs,
         retained,
@@ -381,7 +456,12 @@ def plot_reads_cutoff_qc(data, reads_cutoff, output_file):
         linewidth=1,
         color=PRIMARY_COLOR,
     )
-    axes[1].set(xlabel="Reads Cutoff", ylabel="Frac. of Reads\nRetained", xscale="log", ylim=(0, 1.05))
+    axes[1].set(
+        xlabel="Reads Cutoff",
+        ylabel="Frac. of Reads\nRetained",
+        xscale="log",
+        ylim=(0, 1.05),
+    )
     for axis in axes:
         axis.axvline(
             reads_cutoff,
@@ -435,7 +515,9 @@ def plot_sr_reads_umis(summary, output_file):
     )
     for _, mask, color in categories:
         subset = summary.loc[mask]
-        axis.scatter(subset["n_reads"], subset["n_UR"], s=2, alpha=0.4, color=color)
+        axis.scatter(
+            subset["n_reads"], subset["n_UR"], s=2, alpha=0.4, color=color
+        )
     axis.set(xscale="log", yscale="log", xlabel="Reads", ylabel="UMIs")
     lower = max(1, summary["n_UR"].min())
     upper = summary["n_UR"].max()
@@ -447,8 +529,18 @@ def plot_sr_reads_umis(summary, output_file):
             color="red",
             linewidth=1,
         )
-    handles = [mpatches.Patch(color=color, label=f"k {label}") for label, _, color in categories]
-    axis.legend(handles=handles, title="k = Reads/UMIs", loc="center left", bbox_to_anchor=(1, 0.5), fontsize=8, title_fontsize=9)
+    handles = [
+        mpatches.Patch(color=color, label=f"k {label}")
+        for label, _, color in categories
+    ]
+    axis.legend(
+        handles=handles,
+        title="k = Reads/UMIs",
+        loc="center left",
+        bbox_to_anchor=(1, 0.5),
+        fontsize=8,
+        title_fontsize=9,
+    )
     finish_plot(figure, output_file)
 
 
@@ -464,12 +556,16 @@ def plot_lr_per_sr(data, output_file):
         edgecolor="white",
         linewidth=0.3,
     )
-    axis.set(xlabel="Number of LRs per SR", ylabel="Number of SRs", yscale="log")
+    axis.set(
+        xlabel="Number of LRs per SR",
+        ylabel="Number of SRs",
+        yscale="log",
+    )
     finish_plot(figure, output_file)
 
 
 def read_extracted_fastqs(sb_ub_fq, lineage_bc_fq, sb_len, ub_len):
-    """Read amplicon-specific SB/UB and optional lineage FASTQs."""
+    """Read DARLIN-specific SB/UB and optional lineage FASTQs."""
     if sb_len <= 0 or ub_len <= 0:
         raise ValueError("sb_len and ub_len must be positive integers")
     rows = []
@@ -548,7 +644,7 @@ def apply_sb_correction(df, barcode_a_whitelist, barcode_b_whitelist):
 
 
 def process(args):
-    plot_dir = setup_plot_dir(args)
+    plot_dir = args.output_path
     use_lineage = bool(args.darlin)
 
     df_seq = read_extracted_fastqs(
@@ -559,7 +655,11 @@ def process(args):
     )
 
     if use_lineage:
-        plot_lineage_length_hist(df_seq["LB_len"], plot_dir / "lineage_bc_length.png", min_len=args.min_lb_len)
+        plot_lineage_length_hist(
+            df_seq["LB_len"],
+            plot_dir / "lineage_bc_length.png",
+            min_len=args.min_lb_len,
+        )
         df = df_seq.groupby(["LB", "SB", "UB", "LB_len"]).size().reset_index(name="reads")
         summarize(df, "collapsed_raw_molecules")
         df = df[df["LB_len"] >= args.min_lb_len].copy()
@@ -569,7 +669,9 @@ def process(args):
         summarize(df, "collapsed_raw_molecules")
         summarize_label = "after_initial_reads_filter"
 
-    plot_reads_cutoff_qc(df, args.initial_reads_cutoff, plot_dir / "reads_cutoff_qc.png")
+    plot_reads_cutoff_qc(
+        df, args.initial_reads_cutoff, plot_dir / "reads_cutoff_qc.png"
+    )
     df = df[df["reads"] >= args.initial_reads_cutoff].copy()
     df.sort_values(by="reads", ascending=False, inplace=True)
     summarize(df, summarize_label)
@@ -604,7 +706,11 @@ def process(args):
         summarize(df, "after_lineage_correction")
 
         df = add_reads_fraction(df, args.reads_fraction_mode)
-        plot_reads_fraction_qc(df, args.major_fraction_threshold_molecule, plot_dir / "reads_fraction_qc.png")
+        plot_reads_fraction_qc(
+            df,
+            args.major_fraction_threshold_molecule,
+            plot_dir / "reads_fraction_qc.png",
+        )
         df_major = df[df["reads_fraction"] >= args.major_fraction_threshold_molecule].copy()
         reads_removed_as_amplification_error = int(df["reads"].sum() - df_major["reads"].sum())
         print(f"reads_removed_as_amplification_error: {reads_removed_as_amplification_error:,}")
@@ -615,7 +721,6 @@ def process(args):
     sr_summary = df_major.groupby("SR").agg(n_reads=("reads", "sum"), n_UR=("UR", "nunique")).reset_index()
     sr_summary["k"] = sr_summary["n_reads"] / sr_summary["n_UR"]
     plot_sr_reads_umis(sr_summary, plot_dir / "sr_reads_vs_umis.png")
-
     df_final = df_major.merge(sr_summary[["SR", "k"]], on="SR", how="left")
     df_final = df_final[(df_final["k"] >= args.slope_cutoff) & (df_final["reads"] >= args.final_reads_cutoff)].copy()
     reads_removed_as_capture_oligo_carryover = int(df_major["reads"].sum() - df_final["reads"].sum())
@@ -635,15 +740,6 @@ def process(args):
     out_final = args.output_path / "final.csv"
     df_final.to_csv(out_final, index=False)
     print(f"Wrote final table: {out_final.resolve()}")
-    plot_spatial_heatmaps(
-        out_final,
-        args.barcodeA_whitelist,
-        args.barcodeB_whitelist,
-        args.output_path,
-        args.sb_len,
-        args.x_spots_number,
-        args.y_spots_number,
-    )
 
 
 def main():

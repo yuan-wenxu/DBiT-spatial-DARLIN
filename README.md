@@ -2,12 +2,11 @@
 
 Version 0.2.0
 
-DBiT-spatial-DARLIN is a quality-control and clone-analysis pipeline for DBiT
-spatial transcriptome, registered tissue image, and DARLIN amplicon data.
+DBiT-spatial-DARLIN is a quality-control pipeline for DBiT spatial
+transcriptome, registered tissue image, and DARLIN data.
 
 For implementation details, see the
-[technical documentation](docs/TECHNICAL_DOCUMENTATION.md). For coordinate
-orientation examples, see [orientation handling](docs/ORIENTATION.md).
+[technical documentation](docs/TECHNICAL_DOCUMENTATION.md).
 
 ## Expected data organization
 
@@ -21,9 +20,9 @@ sample_name/
 │       ├── <sample>_R1.fq.gz
 │       └── <sample>_R2.fq.gz
 ├── image/
-│   ├── align.png
-│   └── gray.png
-└── amplicon/
+│   ├── <sample>.jpg
+│   └── mask.png
+└── darlin/
     └── fastq/
         ├── <sample>_CA_R1.fq.gz
         ├── <sample>_CA_R2.fq.gz
@@ -33,16 +32,12 @@ sample_name/
         └── <sample>_TA_R2.fq.gz
 ```
 
-The amplicon filenames must contain `CA`, `RA`, or `TA` so the locus can be
-identified. Clone analysis also requires an allele-bank directory containing
-one `.csv`, `.csv.gz`, `.tsv`, or `.tsv.gz` file per locus. Each bank filename
-must contain the corresponding uppercase `CA`, `RA`, or `TA` label. The mRNA
-FASTQ directory must contain exactly one paired sample.
+The DARLIN filenames must contain `CA`, `RA`, or `TA` so the locus can be
+identified. The mRNA FASTQ directory must contain exactly one paired sample.
 
-`align.png` is the cropped registered image produced by manually aligning the
-tissue image with the spatial transcriptome result. It is used as the input to
-the image QC step. `gray.png` is the corresponding grayscale tissue image used
-as the background for merged spatial plots.
+The full-resolution image is passed to the image step. Its adjacent `mask.png`
+must have the same dimensions; the mask's nonzero/opaque region defines the
+DBiT frame in the full-resolution image.
 
 ## Installation and configuration
 
@@ -77,8 +72,8 @@ The repository provides two templates in `config/`:
   by `dbit init` when available)
 - `dbit.config.example.sh` — blank template with all fields commented out
 
-Edit the copied configuration, including `genome_dir`, `bank_dir`, execution
-mode, and SLURM resources where applicable. Use `execution_mode=local` for a local run or
+Edit the copied configuration, including `genome_dir`, execution mode, and
+SLURM resources where applicable. Use `execution_mode=local` for a local run or
 `execution_mode=hpc` for SLURM submission.
 
 Run `dbit` from the dataset directory. By default it loads `./dbit.config.sh`;
@@ -89,84 +84,16 @@ use `--config <file>` only when the configuration is stored elsewhere.
 The recommended order is:
 
 ```text
-mrna → saturation → image → amplicon → filter → clone
+mrna → saturation → darlin → image
 ```
 
-### mRNA QC
-
-Preprocess transcriptome FASTQs, run STAR, calculate QC metrics, and generate
-spatial expression and clustering results.
-
-```bash
-cd /path/to/sample_name
-dbit mrna \
-    --input ./transcriptome/fastq \
-    --chip 50-50
-```
-
-### Saturation analysis
-
-Downsample the mRNA FASTQs and run the complete mRNA workflow independently
-for every fraction.
-
-```bash
-dbit saturation
-```
-
-### Image QC
-
-Segment the registered image, count cells per spatial spot, and generate the
-tissue mask used by later filtering.
-
-```bash
-dbit image \
-    --input ./image/align.png \
-    --orientation normal \
-    --swap-xy False
-```
-
-### Amplicon QC
-
-Preprocess DARLIN amplicon FASTQs, correct barcodes, filter lineage records,
-and generate per-locus results.
-
-```bash
-dbit amplicon \
-    --input ./amplicon/fastq
-```
-
-### Tissue-filtered plots
-
-Apply image-derived cell/tissue filtering to the mRNA and amplicon results and
-merge spatial overlays with the grayscale tissue image.
-
-```bash
-dbit filter
-```
-
-### Clone analysis
-
-Filter clone calls against the locus-specific allele banks and plot the top LR
-clones over the mRNA Leiden-cluster background.
-
-```bash
-dbit clone \
-    --rotate 0
-```
-
-The first input path and chip selection are stored in the dataset config and
-reused by later commands. The `image` and `filter` commands only use the stored
-chip and do not accept `--chip`. Current options and filtering thresholds are
-listed by the command-line help:
+Input paths and chip selections are stored in the dataset config and reused by
+later commands. Current options and filtering thresholds are listed by the
+command-line help:
 
 ```bash
 dbit -h
 dbit mrna -h
-dbit saturation -h
-dbit image -h
-dbit amplicon -h
-dbit filter -h
-dbit clone -h
 ```
 
 ## Output organization
@@ -179,35 +106,16 @@ sample_name/
 ├── transcriptome/
 │   ├── fastq/
 │   ├── saturation/
-│   │   ├── 0.01/
-│   │   │   ├── config.sh
-│   │   │   ├── fastq/
-│   │   │   ├── fastq_umi_barcode/
-│   │   │   └── results/
-│   │   ├── 0.02/
-│   │   ├── ...
-│   │   ├── saturation_curve.png
-│   │   ├── saturation_metrics.csv
-│   │   └── saturation_fit.csv
 │   ├── fastq_umi_barcode/
+│   ├── matrix/
 │   └── results/
-│       ├── deconv/
-│       └── Solo.out/
 ├── image/
-│   ├── filtered_results.csv
 │   ├── tissue_mask.png
-│   └── result.png
-└── amplicon/
+│   └── tissue_positions.tsv.gz
+└── darlin/
     ├── fastq/
     ├── fastq_umi_barcode/
     └── results/
-        ├── CA/
-        │   ├── final.csv
-        │   ├── tissuefiltered.csv
-        │   ├── tissuefiltered.bank_filtered.csv
-        │   └── top_lr_plots/
-        ├── RA/
-        └── TA/
 ```
 
 The dataset config is updated with the resolved input and result paths so later

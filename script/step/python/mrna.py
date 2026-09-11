@@ -1,8 +1,9 @@
 import argparse
+from dataclasses import dataclass
+import gzip
 from pathlib import Path
 
 import pandas as pd
-import anndata as ad
 import scanpy as sc
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_hex, to_rgba
@@ -13,16 +14,6 @@ from scipy import sparse
 from sklearn.neighbors import NearestNeighbors
 from scipy.io import mmread
 import seaborn as sns
-
-from utils import (
-    SpatialPlotConfig,
-    add_spatial_coordinates,
-    plot_spatial_heatmaps,
-    spatial_frame_shape,
-    spatial_image_size,
-    validate_barcode_length,
-)
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -106,6 +97,15 @@ def parse_args():
     return parser.parse_args()
 
 
+@dataclass(frozen=True)
+class SpatialPlotConfig:
+    x_spots_number: int
+    y_spots_number: int
+    length_spot: int
+    interval: int
+    pixel_length: float
+
+
 RANDOM_STATE = 42
 AXIS_FONT_SIZE = 10
 TITLE_FONT_SIZE = 12
@@ -141,6 +141,73 @@ def categorical_colors(count):
         CATEGORICAL_COLORS[index % len(CATEGORICAL_COLORS)]
         for index in range(count)
     ]
+
+
+def spatial_cluster_frame_geometry(config):
+    """Return array shape and resized image size for row/column coordinates."""
+    height = int(
+        config.x_spots_number * config.length_spot
+        + (config.x_spots_number - 1) * config.interval
+    )
+    width = int(
+        config.y_spots_number * config.length_spot
+        + (config.y_spots_number - 1) * config.interval
+    )
+    output_size = (
+        int(width / config.pixel_length),
+        int(height / config.pixel_length),
+    )
+    return (height, width, 4), output_size
+
+
+def spatial_cluster_image_indices(row_idx, col_idx, config):
+    """Map row/column coordinates to image x/y indices."""
+    return config.y_spots_number - 1 - col_idx, row_idx
+
+
+def validate_barcode_length(cb_len: int) -> int:
+    if (
+        not isinstance(cb_len, int)
+        or isinstance(cb_len, bool)
+        or cb_len <= 0
+        or cb_len % 2 != 0
+    ):
+        raise ValueError("cb_len must be a positive even integer")
+    return cb_len // 2
+
+
+def add_spatial_coordinates(
+    data: pd.DataFrame,
+    barcode_column: str,
+    barcode_a_whitelist_path,
+    cb_len: int,
+    barcode_b_whitelist_path=None,
+) -> pd.DataFrame:
+    """Add row/column barcode components and zero-based grid coordinates."""
+
+    def read_components(whitelist_path):
+        path = str(whitelist_path)
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8") as handle:
+            components = [line.strip() for line in handle if line.strip()]
+        if len(components) != len(set(components)):
+            raise ValueError(f"Whitelist contains duplicate barcodes: {path}")
+        return components
+
+    component_len = validate_barcode_length(cb_len)
+    barcode_as = read_components(barcode_a_whitelist_path)
+    barcode_bs = read_components(
+        barcode_b_whitelist_path or barcode_a_whitelist_path
+    )
+    row_coordinate = {barcode: index for index, barcode in enumerate(barcode_as)}
+    col_coordinate = {barcode: index for index, barcode in enumerate(barcode_bs)}
+    result = data.copy()
+    barcodes = result[barcode_column].astype(str)
+    result["row_bc"] = barcodes.str[component_len:cb_len]
+    result["col_bc"] = barcodes.str[:component_len]
+    result["row"] = result["row_bc"].map(row_coordinate).fillna(-1).astype(int)
+    result["col"] = result["col_bc"].map(col_coordinate).fillna(-1).astype(int)
+    return result
 
 
 def set_axis_font_sizes(axis):
@@ -384,34 +451,6 @@ def build_snn_graph(adata, n_neighbors=30, n_pcs=20):
     }
 
 
-def make_h5ad_names_writable(adata):
-    obs_index_name = adata.obs.index.name if isinstance(adata.obs.index.name, str) else "obs_names"
-    var_index_name = adata.var.index.name if isinstance(adata.var.index.name, str) else "var_names"
-    if obs_index_name in adata.obs.columns:
-        obs_index_name = "obs_names"
-    if var_index_name in adata.var.columns:
-        var_index_name = "var_names"
-    adata.obs.index = pd.Index(adata.obs.index.astype(str).astype(object), name=obs_index_name)
-    adata.var.index = pd.Index(adata.var.index.astype(str).astype(object), name=var_index_name)
-
-    def sanitize(value):
-        if isinstance(value, pd.DataFrame):
-            if not isinstance(value.index.name, str):
-                value.index.name = "index"
-            value.index = pd.Index(value.index.astype(str).astype(object), name=value.index.name)
-            value.columns.name = str(value.columns.name) if value.columns.name is not None else None
-            for col in value.columns:
-                if str(value[col].dtype).startswith("string"):
-                    value[col] = value[col].astype(str).astype(object)
-        elif isinstance(value, dict):
-            for sub_value in value.values():
-                sanitize(sub_value)
-
-    sanitize(adata.obs)
-    sanitize(adata.var)
-    sanitize(adata.uns)
-
-
 def plot_cluster(
     adata,
     barcode_a_whitelist,
@@ -424,23 +463,11 @@ def plot_cluster(
     result = adata.obs[['total_counts', 'n_genes_by_counts']].reset_index()
     result = result.rename(columns={result.columns[0]: 'barcode'})
 
-    n_comps = sct_normalize_and_pca(adata)
+    sct_normalize_and_pca(adata)
     print(f"Number of highly variable genes: {adata.var['highly_variable'].sum()}")
     print('\n')
 
-    sc.pl.pca_variance_ratio(adata, log=True, n_pcs=n_comps, show=False)
-    ax = plt.gca()
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_xlabel('')
-    ax.set_ylabel('')
-    ax.set_title('Variance ratio')
-    set_axis_font_sizes(ax)
-    plt.savefig(f'{output}/pca.png', bbox_inches='tight', dpi=300)
-    plt.close()
-
     build_snn_graph(adata, n_neighbors=30, n_pcs=20)
-    sc.tl.umap(adata, random_state=RANDOM_STATE)
     sc.tl.leiden(
         adata,
         resolution=0.2,
@@ -465,18 +492,6 @@ def plot_cluster(
         cluster_id: np.asarray(to_rgba(cluster_hex_colors[i]))
         for i, cluster_id in enumerate(cluster_ids)
     }
-    adata.uns['leiden_colors'] = cluster_hex_colors
-
-    sc.pl.umap(adata, color='leiden', legend_loc='on data', title='UMAP - Clusters', frameon=False, show=False)
-    ax = plt.gca()
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_xlabel('')
-    ax.set_ylabel('')
-    ax.set_title('UMAP')
-    set_axis_font_sizes(ax)
-    plt.savefig(f'{output}/umap.png', bbox_inches='tight', dpi=300)
-    plt.close()
 
     result = add_spatial_coordinates(
         result,
@@ -488,8 +503,8 @@ def plot_cluster(
     result = result.merge(adata.obs[['leiden']], left_on='barcode', right_index=True)
     data = pd.DataFrame(
         {
-            'x': result['x'],
-            'y': result['y'],
+            'row': result['row'],
+            'col': result['col'],
             'umi_count': result['total_counts'],
             'gene_count': result['n_genes_by_counts'],
             'leiden': result['leiden'].astype(int),
@@ -497,23 +512,15 @@ def plot_cluster(
     )
     data['color'] = data['leiden'].map(lambda cluster_id: to_hex(cluster_colors[int(cluster_id)]))
 
-    spatial_metadata = result.set_index('barcode').loc[adata.obs_names]
-    adata.obs['xbc'] = spatial_metadata['xbc'].to_numpy()
-    adata.obs['ybc'] = spatial_metadata['ybc'].to_numpy()
-    adata.obs['x'] = spatial_metadata['x'].to_numpy(dtype=int)
-    adata.obs['y'] = spatial_metadata['y'].to_numpy(dtype=int)
-    adata.obs['color'] = adata.obs['leiden'].map(
-        lambda cluster_id: to_hex(cluster_colors[int(cluster_id)])
-    )
-    adata.obsm['spatial'] = adata.obs[['x', 'y']].to_numpy()
-
-    frame_umap = np.zeros(spatial_frame_shape(config), dtype=np.uint8)
+    frame_shape, output_size = spatial_cluster_frame_geometry(config)
+    frame_umap = np.zeros(frame_shape, dtype=np.uint8)
 
     for _, row in data.iterrows():
-        x_idx = int(row['x'])
-        y_idx = int(row['y'])
+        row_idx = int(row['row'])
+        col_idx = int(row['col'])
         id = int(row['leiden'])
 
+        x_idx, y_idx = spatial_cluster_image_indices(row_idx, col_idx, config)
         x_start = x_idx * (config.length_spot + config.interval)
         y_start = y_idx * (config.length_spot + config.interval)
         x_end = x_start + config.length_spot
@@ -521,7 +528,6 @@ def plot_cluster(
         frame_umap[y_start:y_end, x_start:x_end, :] = (cluster_colors[id] * 255).astype(np.uint8)
 
     img_umap = Image.fromarray(frame_umap, mode = 'RGBA')
-    output_size = spatial_image_size(config)
     img_umap = img_umap.resize(output_size, resample=Image.NEAREST)
     box_width = 10
     width, height = img_umap.size
@@ -553,15 +559,8 @@ def plot_cluster(
     fig_leg.savefig(f'{output}/umap_legend.png', bbox_inches='tight', dpi=300)
     plt.close(fig_leg)
 
-    make_h5ad_names_writable(adata)
-    if 'gene_name' in adata.var:
-        adata.var['gene_name'] = adata.var['gene_name'].astype('string')
-    ad.settings.allow_write_nullable_strings = True
-    h5ad_path = f'{output}/clustered.h5ad'
-    adata.write_h5ad(h5ad_path, convert_strings_to_categoricals=False)
-    data.to_csv(f'{output}/data.csv', index=False)
-
-    return f'{output}/data.csv'
+    metrics_path = f'{output}/spatial_metrics.csv'
+    data.to_csv(metrics_path, index=False)
 
 
 def find_gene_directory(file_path):
@@ -588,22 +587,13 @@ def run_mrna_qc(
     adata = load_and_filter_counts(
         method_path, True, umi_min, gene_min, min_cells
     )
-    csv_path = plot_cluster(
-        adata.copy(),
+    plot_cluster(
+        adata,
         barcode_a_whitelist,
         barcode_b_whitelist,
         method_path,
         config,
         cb_len,
-    )
-    plot_spatial_heatmaps(
-        csv_path,
-        barcode_a_whitelist,
-        barcode_b_whitelist,
-        method_path,
-        cb_len,
-        config.x_spots_number,
-        config.y_spots_number,
     )
 
 

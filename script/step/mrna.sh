@@ -1,7 +1,7 @@
 #!/bin/bash
 set -o pipefail
 
-SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+SCRIPT_DIR=${STEP_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
@@ -119,12 +119,23 @@ fi
 
 orig_output_path="$output_path"
 
+shopt -s nullglob
+r1_files=("$fastq_path"/*_R1.fq.gz)
+shopt -u nullglob
+if (( ${#r1_files[@]} != 1 )); then
+    echo "Error: mRNA FASTQ directory must contain exactly one *_R1.fq.gz file; found ${#r1_files[@]} in $fastq_path." >&2
+    exit 1
+fi
+
 mkdir -p "$output_path"
 
-for r1 in "$fastq_path"/*_R1.fq.gz; do
-    [ -e "$r1" ] || { echo "Error: no *_R1.fq.gz files found in $fastq_path" >&2; exit 1; }
+for r1 in "${r1_files[@]}"; do
     sample_name=$(basename "$r1" | sed 's/_R1.fq.gz//')
     r2_orig="$fastq_path/${sample_name}_R2.fq.gz"
+    if [[ ! -f "$r2_orig" ]]; then
+        echo "Error: matching mRNA R2 file not found: $r2_orig" >&2
+        exit 1
+    fi
 
     log_file="$orig_output_path/${sample_name}_preprocess.log"
     final_results="$orig_output_path/results"

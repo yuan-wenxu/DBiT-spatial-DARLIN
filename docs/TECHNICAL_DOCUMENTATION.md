@@ -8,25 +8,21 @@ The pipeline contains these user-facing steps:
 
 - `mrna`: preprocess transcriptome FASTQs, run STARsolo, and perform spatial QC.
 - `saturation`: downsample transcriptome FASTQs and run mRNA QC at each fraction.
-- `image`: split the registered image and count cells with StarDist.
-- `amplicon`: process DARLIN amplicon FASTQs and generate clone-call tables.
-- `filter`: apply tissue filtering and merge spatial plots with the image.
-- `clone`: filter LR sequences against allele banks and plot the top clones.
+- `darlin`: process DARLIN FASTQs and generate lineage-call tables.
+- `image`: create a tissue mask, filter spatial results, and generate registered plots.
 
 The corresponding shell entry points are:
 
 ```text
 script/dbit.sh
-script/Quality_Control/mrna.sh
-script/Saturation/saturation.sh
-script/Quality_Control/image.sh
-script/Quality_Control/amplicon.sh
-script/Quality_Control/filter.sh
-script/Clone_Analysis/clone.sh
+script/step/mrna.sh
+script/step/saturation.sh
+script/step/darlin.sh
+script/step/image.sh
 ```
 
 `dbit.sh` launches one step locally or through SLURM. It stores resolved input
-and result paths, chip selection, orientation, and selected command-line
+and result paths, chip selection, and selected command-line
 overrides in a per-dataset config so later steps can reuse them. Chip grid
 dimensions and barcode A/B whitelist paths are resolved centrally by the
 launcher and exported separately to worker scripts. Python commands run through
@@ -36,46 +32,35 @@ the appropriate Pixi environment.
 
 ### Spatial Coordinates
 
-Spatial spot coordinates are stored as integer `x` and `y` columns. Most spatial plotting code uses image-like coordinates:
+Spatial spot coordinates are stored as integer `row` and `col` columns. These
+replace the former `x` and `y` output columns:
 
-- `x` increases left to right.
-- `y` increases top to bottom.
-- Matplotlib plots call `invert_yaxis()` when needed to preserve this image-coordinate interpretation.
+- `row` (barcode A) increases from top to bottom.
+- `col` (barcode B) increases from right to left.
+- `(row=0, col=0)` is at the upper-right corner.
 
 ### Barcode Structure
 
-Transcriptome and amplicon preprocessing both extract a 16 bp spatial barcode and a 10 bp UMI. The 16 bp spatial barcode is built from two 8 bp components.
+Transcriptome and DARLIN preprocessing both extract a 16 bp spatial barcode and a 10 bp UMI. The 16 bp spatial barcode is built from two 8 bp components.
 
 ![Barcode and UMI structure](image/barcode.png)
-
-### Orientation Parameters
-
-`image.sh`, `filter.sh`, and clone analysis share orientation controls:
-
-The shared QC config sets `orientation` to `normal`, `horizontal`, `vertical`,
-or `rotate`; `swap_xy=True` additionally swaps the coordinate axes.
-
-These parameters are documented in detail in [ORIENTATION.md](ORIENTATION.md). The clone-analysis pipeline reads `orientation` and `swap_xy` from the same shared config, matching the QC pipeline conventions.
-
-Clone `--rotate` is separate from orientation alignment. It rotates only the
-final top-LR spatial grid clockwise by `0`, `90`, `180`, or `270` degrees for
-presentation; it does not rotate the photographed image or the plot legends.
 
 ## 3. Transcriptome Workflow
 
 Entry point:
 
 ```text
-script/Quality_Control/mrna.sh
+script/step/mrna.sh
 ```
 
 ### 3.1 Preprocessing
 
-The shell script locates transcriptome FASTQ pairs from the input path passed
-by `dbit.sh`, then calls the shared preprocessing entry point:
+The input directory must contain exactly one `*_R1.fq.gz` file and its matching
+`*_R2.fq.gz` file. Both `dbit.sh` and the mRNA worker validate this requirement
+before processing. The worker then calls the shared preprocessing entry point:
 
 ```text
-script/Quality_Control/python/preprocess.py
+script/step/python/preprocess.py
 ```
 
 Main operations:
@@ -131,14 +116,11 @@ When incomplete STAR outputs are cleaned before a rerun.
 After STARsolo, `mrna.sh` calls:
 
 ```text
-script/Quality_Control/python/mrna.py
+script/step/python/mrna.py
 ```
 
 This script contains the mRNA-specific matrix QC, filtering, plotting, and
-clustering logic. DARLIN processing is handled only by the amplicon workflow.
-
-Shared FASTQ/text I/O, spatial-coordinate mapping, tissue-table merging, and
-spatial plotting helpers are defined in `script/Quality_Control/python/utils.py`.
+clustering logic. DARLIN processing is handled only by the DARLIN workflow.
 
 The clustering workflow:
 
@@ -148,7 +130,7 @@ The clustering workflow:
 4. Normalize with a Scanpy Pearson-residual workflow.
 5. Run PCA.
 6. Build an SNN graph from PCA coordinates.
-7. Run UMAP and Leiden clustering.
+7. Run Leiden clustering.
 8. Write spatial cluster plots and tabular outputs.
 
 Before Pearson-residual normalization, spots whose total count is zero across
@@ -163,7 +145,7 @@ Key defaults:
 - Pearson residual `theta`: `100`
 - Pearson residual `n_top_genes`: `3000`, capped by available genes
 - PCA `n_comps`: `50`, capped by available spots and genes
-- SNN `n_neighbors`: `10`
+- SNN `n_neighbors`: `30`
 - SNN `n_pcs`: `20`, capped by available PCs
 - Leiden `resolution`: `0.2`
 - Leiden `random_state`: `42`
@@ -172,36 +154,32 @@ Important mRNA outputs:
 
 ```text
 Solo.out/GeneFull/raw/
-├── data.csv
-├── clustered.h5ad
-├── pca.png
-├── umap.png
+├── spatial_metrics.csv
 ├── frame_umap.png
 ├── umap_legend.png
 ├── umi_filtered.png
 └── gene_filtered.png
 ```
 
-`data.csv` contains spot-level information including:
+`spatial_metrics.csv` contains the spot-level information needed by saturation
+analysis and tissue filtering:
 
-- `x`, `y`
+- `row`, `col`
 - raw QC metrics such as `umi_count` and `gene_count`
 - `leiden`
 - `color`
 
-`clustered.h5ad` keeps the full raw count matrix, spot metadata, spatial
-coordinates, gene IDs and names, dimensional reductions, clustering results, and the
-Pearson-residual-normalized highly-variable-gene matrix under
-`uns['pearson_residuals_normalization']['pearson_residuals_df']`.
 
-`data_tissuefiltered.csv` is produced later by `filter.sh` after applying the image-derived tissue mask to mRNA spot data.
+In `frame_umap.png`, coordinate `(row=0, col=0)` is at the upper-right corner.
+`row` increases from top to bottom, and `col` increases from right to left.
 
 ### 3.4 Saturation analysis
 
 `dbit saturation` reuses `mrna_fastq_path` stored by the mRNA step. The single
-`script/Saturation/saturation.sh` worker uses `seqtk sample` with the same seed
+`script/step/saturation.sh` worker uses `seqtk sample` with the same seed
 for both reads of every FASTQ pair, then invokes the complete mRNA worker once
-for each fraction. Outputs follow this layout:
+for each fraction. The same exactly-one-pair validation is applied before
+downsampling. Outputs follow this layout:
 
 ```text
 <mRNA FASTQ parent>/saturation/<fraction>/
@@ -213,80 +191,21 @@ for each fraction. Outputs follow this layout:
 ```
 
 
-## 4. Image Workflow
+## 4. DARLIN Workflow
 
 Entry point:
 
 ```text
-script/Quality_Control/image.sh
+script/step/darlin.sh
 ```
 
-The image workflow assumes a registered and cropped image, usually named `align.png`.
-
-Main steps:
-
-1. Generate a coarse whole-image tissue mask by treating near-black pixels as
-   background, requiring a small amount of local signal density, and removing
-   isolated regions outside the main tissue.
-2. Pass the mask into the image-splitting loop so each logical DBiT spot is
-   numbered, cropped, and classified in one traversal using the same
-   orientation mapping.
-3. Run StarDist on each generated tile.
-4. Write cell count, cell area, and `in_tissue` status for every spot.
-5. Filter predicted cells by the configured area cutoff while retaining both
-   the per-spot cell-count interface and `in_tissue` column. Downstream plots
-   filter spots using `in_tissue` rather than requiring `count > 0`.
-
-Implementation files:
-
-```text
-script/Quality_Control/python/image_segment.py
-script/Quality_Control/python/image_filter.py
-```
-
-`image_segment.py` contains tissue-mask generation, DBiT-grid image splitting,
-StarDist prediction, and the raw per-spot segmentation summary.
-`image_filter.py` is a separate stage that applies the cell-area cutoff and
-writes the retained cell count for every spot.
-
-Important outputs:
-
-```text
-image/
-├── result.png
-├── cell_num_area.csv
-├── filtered_results.csv
-├── tissue_mask.png
-├── mask/
-├── label/
-└── split/
-```
-
-`filtered_results.csv` is the image-derived table used by `filter.sh`. It retains
-spot coordinates and predicted cell counts and adds the Boolean `in_tissue`
-column used for spot filtering. `tissue_mask.png` is a full-resolution binary
-mask in the registered image coordinate system.
-
-Tissue-mask thresholds and cleanup parameters are internal defaults; no
-additional user configuration is required.
-
-The image workflow uses the `image` Pixi environment because it depends on TensorFlow, StarDist, OpenCV, and related image packages.
-
-## 5. Amplicon Workflow
-
-Entry point:
-
-```text
-script/Quality_Control/amplicon.sh
-```
-
-The amplicon workflow processes CA, RA, and TA DARLIN amplicon FASTQ files. The
+The `dbit darlin` command processes CA, RA, and TA DARLIN FASTQ files. The
 script infers the locus from sample names containing `CA`, `RA`, or `TA`, and
 accepts either `sample-CA` or `sample_CA` naming.
 
-### 5.1 Preprocessing
+### 4.1 Preprocessing
 
-`amplicon.sh` performs the locus-specific two-pass cutadapt trimming itself,
+`darlin.sh` performs the locus-specific two-pass cutadapt trimming itself,
 then passes the trimmed FASTQ pair to the shared `python/preprocess.py` barcode
 and UMI extractor. The mRNA workflow calls the same extractor directly and
 does not run cutadapt.
@@ -301,26 +220,26 @@ Main operations:
 Important preprocessing parameters:
 
 - `cutadapt`: whether to trim reads before extraction.
-- `amp_cores`: parallelism for cutadapt and barcode extraction.
+- `darlin_cores`: parallelism for cutadapt and barcode extraction.
 - `base_quality`: base-quality threshold.
 - `linker1`, `linker2`, `mm_rate`: linker matching.
 - `gzip_output`, `gzip_after_preprocess`: output compression behavior.
 
-Amplicon preprocessing and correction output is displayed in the terminal
+DARLIN preprocessing and correction output is displayed in the terminal
 while also being written to `<sample>_preprocess.log` and `dbit.log`.
 
-### 5.2 DARLIN Correction
+### 4.2 DARLIN Correction
 
 After preprocessing, the shell script calls:
 
 ```text
-script/Quality_Control/python/amplicon.py
+script/step/python/darlin.py
 ```
 
-The same script contains the amplicon-specific FASTQ parsing, barcode/UMI/LR
-correction, QC plotting, `final.csv` output, and spatial heatmap generation.
+The same script contains the DARLIN-specific FASTQ parsing, barcode/UMI/LR
+correction, QC plotting, and `final.csv` output.
 Barcode A and barcode B whitelist files are passed separately; SB sequences
-are interpreted in B+A order, with A mapped to x and B mapped to y.
+are interpreted in B+A order, with A mapped to row and B mapped to column.
 
 The correction workflow:
 
@@ -346,17 +265,16 @@ Important columns:
 - `reads_fraction`: LR fraction within an SR/UR group
 - `k`: SR-level reads-per-UMI slope
 - `n_LR`: number of unique LR values within an SR
-- `xbc`, `ybc`: corrected barcode A/B components
-- `x`, `y`: zero-based spatial coordinates derived from the A/B whitelists
+- `row_bc`, `col_bc`: corrected barcode A/B components
+- `row`, `col`: zero-based spatial coordinates derived from the A/B whitelists
 
 Important outputs per locus:
 
 ```text
-amplicon/results/<CA|RA|TA>/
+darlin/results/<CA|RA|TA>/
 ├── final.csv
 ├── dbit.log
-├── Reads_counts_heatmap.png
-├── UMI_counts_heatmap.png
+├── lineage_bc_length.png
 ├── lr_per_sr_hist.png
 ├── reads_cutoff_qc.png
 ├── reads_fraction_qc.png
@@ -364,181 +282,130 @@ amplicon/results/<CA|RA|TA>/
 ```
 
 `final.csv` is the main per-locus clone-call table used by downstream
-tissue-filtered plotting. Spatial coordinates are written during amplicon
+tissue-filtered plotting. Spatial coordinates are written during DARLIN
 processing, so the later filtering step does not need a barcode whitelist.
 
-## 6. Tissue-Filtered Visualization
+## 5. Image Workflow
 
 Entry point:
 
 ```text
-script/Quality_Control/filter.sh
+script/step/image.sh
 ```
 
-This step combines image-derived tissue membership and retained cell-count
-information with mRNA and/or amplicon spatial results. Spots are filtered by
-`in_tissue`; cell counts remain available for cell-based summaries.
+### 5.1 Tissue Segmentation
 
-All filtering paths and the chip selection are read from the shared dataset
-config; the `filter` step does not accept `--input` or `--chip`:
+The image workflow accepts a full-resolution image. An adjacent `mask.png`
+with identical dimensions defines the spatial frame: its alpha channel is used
+when it contains both transparent and opaque pixels, otherwise its nonzero
+grayscale region is used.
 
-- `cell_number_file`: appended to the dataset config by the image step; usually `image/filtered_results.csv`
-- `tissue_mask_file`: whole-image binary mask, usually `image/tissue_mask.png`
-- `mrna_dir`: STARsolo `GeneFull` directory
-- `amp_dir`: amplicon result directory
-- `gray_path`: grayscale image for merged overlays
+Main steps:
 
-For mRNA data, the script calls:
+1. Locate the frame bounding box from the adjacent mask.
+2. Crop the corresponding region from the full-resolution image.
+3. Generate a binary tissue mask within that region from image intensity,
+   local signal density, morphology, and connected-region size.
+4. Evaluate each configured DBiT spot against the tissue mask and retain spots
+   whose tissue coverage is at least the internal threshold.
+5. Write the retained barcode indices and their center positions in the
+   coordinate system of the original full-resolution image.
+
+Implementation file:
 
 ```text
-script/Quality_Control/python/mrna_filter.py
+script/step/python/image_segment.py
+```
+
+`image_segment.py` contains frame detection, tissue-mask generation, spatial
+grid placement, and tissue-spot filtering. It does not segment or count cells.
+
+Important outputs:
+
+```text
+image/
+├── tissue_mask.png
+└── tissue_positions.tsv.gz
+```
+
+`tissue_mask.png` is cropped to the frame bounding box.
+`tissue_positions.tsv.gz` is the image-derived index used by the image step and
+contains `barcode`, `array_row`, `array_col`, `pxl_row_in_fullres`, and
+`pxl_col_in_fullres`. Barcodes are written in B+A sequence order. Pixel
+coordinates locate each retained spot center in the original image. Spots with
+less than the internal minimum tissue coverage are omitted from this file.
+
+Tissue-mask thresholds and cleanup parameters are internal defaults; no
+additional user configuration is required.
+
+### 5.2 Tissue Filtering and Visualization
+
+After segmentation, the image step joins the retained image-derived spot index
+with mRNA and/or DARLIN spatial results. Spots absent from
+`tissue_positions.tsv.gz` are removed.
+
+After generating the tissue-position index, the image worker filters any mRNA
+or DARLIN result paths available in the shared dataset config:
+
+- `tissue_positions_file`: retained spot index, usually `image/tissue_positions.tsv.gz`
+- `tissue_mask_file`: frame-sized binary mask, usually `image/tissue_mask.png`
+- `mrna_dir`: STARsolo `GeneFull` directory
+- `darlin_dir`: DARLIN result directory
+- `fullres_image_path`: original full-resolution image
+- `frame_mask_file`: adjacent mask that selects the frame
+
+For configured mRNA and/or DARLIN data, the image worker calls one filter
+entry point:
+
+```text
+script/step/python/image_filter.py
 ```
 
 Key mRNA output:
 
 ```text
-<mrna_dir>/raw/data_tissuefiltered.csv
+<mrna_dir>/raw/spatial_metrics_tissuefiltered.csv
 <mrna_dir>/raw/umap_filtered.png
 <mrna_dir>/raw/umi_filtered.png
 <mrna_dir>/raw/gene_filtered.png
 <mrna_dir>/raw/merged_umap_filtered.png
 ```
 
-For amplicon data, the script calls:
+The image step reads the uncompressed `matrix.mtx`, `barcodes.tsv`, and
+`features.tsv` files from `GeneFull/raw`, then writes the tissue-filtered raw
+count matrix in compressed 10x format while preserving the original feature
+and barcode order:
 
 ```text
-script/Quality_Control/python/amplicon_filter.py
+mrna/matrix/
+├── matrix.mtx.gz
+├── barcodes.tsv.gz
+├── features.tsv.gz
+├── tissue_positions.tsv.gz
+└── <original-image-name>
 ```
 
-Key amplicon outputs are written per locus:
+The tissue-position file and original full-resolution image are copied into the
+same directory so the filtered matrix and its spatial context can be moved as
+one unit.
+
+The only DARLIN filter output is written per locus:
 
 ```text
-<amp_dir>/<CA|RA|TA>/
-├── tissuefiltered.csv
-├── umi_filtered.png
-└── merged_umi_filtered.png
+<darlin_dir>/<CA|RA|TA>/
+└── tissuefiltered.csv
 ```
 
-When `gray.png` is available, `filter.sh` passes the expected mRNA and amplicon
-frame paths explicitly to `merge_on_gray.py`. The script transforms only those
-named files according to `--orientation` and `--swap_xy`, resizes the grayscale
-background, and composites the overlay on top. It does not search directories
-for matching images.
+The image worker passes the expected mRNA frame paths explicitly to
+`merge_on_image.py`.
+The script crops the original image to the mask bounding box, resizes that crop
+to the spatial-frame dimensions, and composites the overlay on top. It does not
+search directories for matching images.
 
-The mRNA and amplicon filtered-plot commands write to `filtered_plot.log` and
-print the same output to the terminal.
+The mRNA filtered-plot command writes to `filtered_plot.log` and prints the
+same output to the terminal.
 
-## 7. Clone Analysis
-
-Entry point:
-
-```text
-script/Clone_Analysis/clone.sh
-```
-
-The clone-analysis workflow reads its parameters from the config file set by
-earlier steps. It expects the amplicon tissue-filtered outputs (from `amp_dir`):
-
-```text
-<input_dir>/
-├── CA/tissuefiltered.csv
-├── RA/tissuefiltered.csv
-└── TA/tissuefiltered.csv
-```
-
-It also requires (from `bank_dir` and `cluster_csv` in config):
-
-- an allele-bank directory containing one `.csv`, `.csv.gz`, `.tsv`, or
-  `.tsv.gz` file for each locus; filenames must contain the corresponding
-  uppercase `CA`, `RA`, or `TA` label
-- an mRNA cluster CSV with `x`, `y`, `leiden`, and optionally `color`
-
-### 7.1 Allele-Bank Filter
-
-Implemented in:
-
-```text
-script/Clone_Analysis/python/allele_bank_filter.py
-```
-
-This step:
-
-1. Reads each label's `tissuefiltered.csv`.
-2. Runs `darlin_core.analyze_sequences` on unique LR sequences.
-3. Compares the resulting mutation strings against the label-specific allele-bank file.
-4. Keeps LR rows whose mutation patterns are not present in the allele bank.
-5. Writes a cache file named `.analyzed_cache.csv` under each label output directory.
-
-Label-to-bank mapping:
-
-```text
-CA filename label -> config Col1a1
-RA filename label -> config Rosa
-TA filename label -> config Tigre
-```
-
-Output per label:
-
-```text
-tissuefiltered.bank_filtered.csv
-```
-
-### 7.2 Top LR Spatial Plot
-
-Implemented in:
-
-```text
-script/Clone_Analysis/python/top_lr_plot.py
-```
-
-The plotter:
-
-1. Reads `tissuefiltered.bank_filtered.csv`.
-2. Groups by LR and ranks clones by:
-   - number of unique SR spots
-   - number of unique UR values
-   - total read support
-   - LR sequence
-3. Selects the top `clone_top_n` LR clones.
-4. Draws a Leiden cluster background from the mRNA cluster CSV.
-5. Overlays hollow circles on spots containing the selected LR.
-6. Sizes circles by unique UR count:
-   - `1`
-   - `2`
-   - `3+`
-
-Plot details:
-
-- `--cluster-alpha` controls both Leiden background opacity and the cluster legend opacity.
-- Transformations are applied in this order: stored `orientation`, stored
-  `swap_xy`, then clone-only `--rotate`.
-- `--orientation <mode>` and `--swap-xy` control spot coordinate orientation, matching the QC pipeline conventions.
-- `--rotate <0|90|180|270>` applies an additional clockwise rotation to the spatial grid for presentation without rotating the legends.
-- `--x-spots-number` and `--y-spots-number` receive the complete chip grid
-  dimensions resolved by `dbit.sh`. Clone and cluster coordinates are rejected
-  if they fall outside that grid.
-- Titles are formatted into a fixed-height area so output PNG dimensions stay constant.
-- Edge padding and unclipped LR circles are used so boundary circles are not cut off.
-
-Outputs per label:
-
-```text
-top_lr_plots/
-├── topLR_001_srXXX_urXXX.png
-├── topLR_002_srXXX_urXXX.png
-└── <LABEL>_top_lr_plot_manifest.csv
-```
-
-The manifest contains:
-
-- `rank`
-- `LR`
-- `unique_SR`
-- `unique_UR`
-- `total_reads`
-- `plot_file`
-
-## 8. Output Summary
+## 6. Output Summary
 
 Typical high-level result layout:
 
@@ -546,34 +413,17 @@ Typical high-level result layout:
 sample_name/
 ├── transcriptome/
 │   └── results/
-├── image/
-│   ├── filtered_results.csv
-│   ├── tissue_mask.png
-│   └── gray.png
-└── amplicon/
-    └── results/
-        └── sample_name/
-            ├── CA/
-            ├── RA/
-            └── TA/
+├── darlin/
+│   └── results/
+│       ├── CA/
+│       ├── RA/
+│       └── TA/
+└── image/
+    ├── tissue_mask.png
+    └── tissue_positions.tsv.gz
 ```
 
-Clone-analysis output layout:
-
-```text
-<amp_dir>/
-├── CA/
-│   ├── tissuefiltered.csv
-│   ├── tissuefiltered.bank_filtered.csv
-│   ├── .analyzed_cache.csv
-│   └── top_lr_plots/
-│       ├── topLR_001_srXXX_urXXX.png
-│       └── CA_top_lr_plot_manifest.csv
-├── RA/
-└── TA/
-```
-
-## 9. Recommended Debug Checks
+## 7. Recommended Debug Checks
 
 1. Inspect preprocessing logs when barcode output is unexpectedly small:
 
@@ -588,24 +438,17 @@ Clone-analysis output layout:
    results/Solo.out/qc.log
    ```
 
-3. Inspect image registration before trusting tissue-filtered plots:
+3. Inspect DARLIN correction summaries and QC plots:
 
    ```text
-   image/result.png
-   image/filtered_results.csv
+   darlin/results/<label>/dbit.log
+   darlin/results/<label>/reads_fraction_qc.png
+   darlin/results/<label>/sr_reads_vs_umis.png
    ```
 
-4. Inspect amplicon correction summaries and QC plots:
+4. Inspect image registration before trusting tissue-filtered plots:
 
    ```text
-   amplicon/results/<label>/dbit.log
-   amplicon/results/<label>/reads_fraction_qc.png
-   amplicon/results/<label>/sr_reads_vs_umis.png
-   ```
-
-5. Inspect clone-analysis intermediate files before interpreting top LR plots:
-
-   ```text
-   tissuefiltered.bank_filtered.csv
-   top_lr_plots/*_top_lr_plot_manifest.csv
+   image/tissue_mask.png
+   image/tissue_positions.tsv.gz
    ```

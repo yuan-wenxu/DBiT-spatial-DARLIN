@@ -1,7 +1,7 @@
 #!/bin/bash
 set -o pipefail
 
-SCRIPT_DIR=${QC_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
+SCRIPT_DIR=${STEP_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)} || exit 1
 REPO_DIR=${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)} || exit 1
 PYTHON_DIR="$SCRIPT_DIR/python"
 
@@ -19,13 +19,13 @@ major_fraction_threshold_molecule=${major_fraction_threshold_molecule:-0.8}
 reads_fraction_mode=${reads_fraction_mode:-sum}
 reads_cutoff=${reads_cutoff:-10}
 slope_cutoff=${slope_cutoff:-10}
-fastq_path=$amplicon_fastq_path
-output_path=${amplicon_output_path:-}
-cores=${amp_cores}
+fastq_path=$darlin_fastq_path
+output_path=${darlin_output_path:-}
+cores=${darlin_cores}
 cutadapt=${cutadapt}
 
-if [[ -z ${amplicon_fastq_path:-} ]]; then
-    echo "Error: amplicon_fastq_path must be set in the QC config." >&2; exit 1
+if [[ -z ${darlin_fastq_path:-} ]]; then
+    echo "Error: darlin_fastq_path must be set in the config." >&2; exit 1
 fi
 for variable in barcode_a_whitelist_path barcode_b_whitelist_path; do
     if [[ -z ${!variable:-} ]]; then
@@ -42,7 +42,7 @@ normalize_dir_path() {
     printf '%s\n' "$path"
 }
 
-run_id=${SLURM_JOB_ID:-amplicon_$$}
+run_id=${SLURM_JOB_ID:-darlin_$$}
 scratch_run_dir=""
 
 cleanup_scratch() {
@@ -50,7 +50,7 @@ cleanup_scratch() {
     trap - EXIT INT TERM HUP
     if [[ -n ${scratch_run_dir:-} && -d $scratch_run_dir ]]; then
         if (( status != 0 )) && [[ -n ${scratch_output:-} && -d $scratch_output && -n ${orig_output_path:-} ]]; then
-            echo "Recovering amplicon scratch outputs after exit status $status: $orig_output_path" >&2
+            echo "Recovering DARLIN scratch outputs after exit status $status: $orig_output_path" >&2
             mkdir -p "$orig_output_path" && cp -a "$scratch_output/." "$orig_output_path/" || \
                 echo "Warning: failed to recover scratch outputs: $scratch_output" >&2
         fi
@@ -80,7 +80,7 @@ compress_fastq_file() {
     run_pixi pigz -f -p "$threads" "-$level" "$fq"
 }
 
-run_amplicon_cutadapt() {
+run_darlin_cutadapt() {
     local locus="$1"
     local reads1="$2"
     local reads2="$3"
@@ -164,9 +164,9 @@ case "${cutadapt,,}" in
 esac
 
 if [ -n "$scratch" ]; then
-    scratch_input="$scratch/dbit/$run_id/amplicon/input"
-    scratch_output="$scratch/dbit/$run_id/amplicon/output"
-    scratch_run_dir="$scratch/dbit/$run_id/amplicon"
+    scratch_input="$scratch/dbit/$run_id/darlin/input"
+    scratch_output="$scratch/dbit/$run_id/darlin/output"
+    scratch_run_dir="$scratch/dbit/$run_id/darlin"
     enable_cleanup
     mkdir -p "$scratch_input" "$scratch_output"
     cp -r "$fastq_path"/* "$scratch_input/"
@@ -187,7 +187,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     preprocess_r1="$r1"
     preprocess_r2="$r2"
     if $cutadapt_enabled; then
-        run_amplicon_cutadapt \
+        run_darlin_cutadapt \
             "$locus" "$r1" "$r2" "$sample_name" || {
                 echo "Error: cutadapt failed for $sample_name" >&2
                 exit 1
@@ -237,7 +237,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
     results="$output_path/results/$locus"
     mkdir -p "$results"
 
-    run_pixi python "$PYTHON_DIR/amplicon.py" \
+    run_pixi python "$PYTHON_DIR/darlin.py" \
         --barcode_umi_reads "$tmp_path/${sample_name}_bc_match_R1.$bc_ext" \
         --darlin_reads "$tmp_path/${sample_name}_bc_match_R2.$bc_ext" \
         --output_path "$results" --darlin "$cutadapt" \
@@ -245,8 +245,6 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --barcodeB_whitelist "$barcode_b_whitelist_path" \
         --sb-len "$sb_len" \
         --ub-len "$ub_len" \
-        --x-spots-number "$x_spots_number" \
-        --y-spots-number "$y_spots_number" \
         --umi_hd_threshold "$umi_hd_threshold" \
         --min-lb-len "$min_lb_len" \
         --initial-reads-cutoff "$initial_reads_cutoff" \
@@ -256,7 +254,7 @@ for r1 in "$file_path"/*_R1.fq.gz; do
         --reads-fraction-mode "$reads_fraction_mode" \
         --final-reads-cutoff "$reads_cutoff" \
         --slope-cutoff "$slope_cutoff" 2>&1 | tee "$results/dbit.log" || {
-            echo "Error: amplicon analysis failed for $sample_name; see $results/dbit.log" >&2
+            echo "Error: DARLIN analysis failed for $sample_name; see $results/dbit.log" >&2
             exit 1
         }
 

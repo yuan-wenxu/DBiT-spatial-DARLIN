@@ -103,6 +103,16 @@ def grayscale_uint8(image: np.ndarray) -> np.ndarray:
     return cv2.normalize(grayscale, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
 
+def save_fullres_grayscale(image: np.ndarray, output_path: Path) -> Path:
+    grayscale = grayscale_uint8(image)
+    if grayscale.shape[:2] != image.shape[:2]:
+        raise RuntimeError("Grayscale conversion changed the image resolution")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output_path), grayscale):
+        raise RuntimeError(f"Failed to write full-resolution grayscale image: {output_path}")
+    return output_path
+
+
 def remove_small_regions(mask: np.ndarray) -> np.ndarray:
     contours, _ = cv2.findContours(
         mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -197,11 +207,10 @@ def build_tissue_positions(
                     f"{tissue_mask.shape[1]}x{tissue_mask.shape[0]}"
                 )
             tissue_fraction = float(np.count_nonzero(spot_mask)) / spot_mask.size
-            if tissue_fraction < MIN_TISSUE_FRACTION:
-                continue
             records.append(
                 {
                     "barcode": barcode_bs[col] + barcode_as[row],
+                    "in_tissue": 1 if tissue_fraction >= MIN_TISSUE_FRACTION else 0,
                     "array_row": row,
                     "array_col": col,
                     "pxl_row_in_fullres": frame_y + (y_start + y_end) // 2,
@@ -212,6 +221,7 @@ def build_tissue_positions(
         records,
         columns=[
             "barcode",
+            "in_tissue",
             "array_row",
             "array_col",
             "pxl_row_in_fullres",
@@ -256,6 +266,10 @@ def process_image(
         )
 
     result_path.mkdir(parents=True, exist_ok=True)
+    grayscale_path = save_fullres_grayscale(
+        image,
+        result_path / "fullres_grayscale.png",
+    )
     tissue_mask = generate_tissue_mask(
         frame_image,
         frame_region,
@@ -275,7 +289,9 @@ def process_image(
         f"Frame bbox: x={frame_x}, y={frame_y}, "
         f"width={frame_width}, height={frame_height}"
     )
-    print(f"Tissue spots: {len(positions)}/{grid.row_count * grid.col_count}")
+    tissue_spots = int((positions["in_tissue"] == 1).sum())
+    print(f"Tissue spots: {tissue_spots}/{len(positions)}")
+    print(f"Wrote full-resolution grayscale image: {grayscale_path.resolve()}")
     print(f"Wrote tissue mask: {(result_path / 'tissue_mask.png').resolve()}")
     print(f"Wrote tissue positions: {output_path.resolve()}")
     return positions

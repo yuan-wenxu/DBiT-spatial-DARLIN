@@ -110,6 +110,7 @@ sample_name/
 │   ├── matrix/
 │   └── results/
 ├── image/
+│   ├── fullres_grayscale.png
 │   ├── tissue_mask.png
 │   └── tissue_positions.tsv.gz
 └── darlin/

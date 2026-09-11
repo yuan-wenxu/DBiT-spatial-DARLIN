@@ -1,5 +1,6 @@
 import argparse
 import gzip
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
-from scipy.io import mmread, mmwrite
 
 
 def parse_args():
@@ -112,11 +112,21 @@ CATEGORICAL_COLORS = (
 
 def load_tissue_positions(tissue_positions_file: Path) -> pd.DataFrame:
     positions = pd.read_csv(tissue_positions_file, sep="\t", compression="infer")
-    required = {"array_row", "array_col"}
+    required = {"in_tissue", "array_row", "array_col"}
     missing = required.difference(positions.columns)
     if missing:
         raise ValueError(
             f"Tissue-position file is missing columns: {sorted(missing)}"
+        )
+    positions["in_tissue"] = pd.to_numeric(
+        positions["in_tissue"], errors="raise"
+    ).astype(int)
+    invalid_values = sorted(
+        set(positions["in_tissue"]).difference({0, 1})
+    )
+    if invalid_values:
+        raise ValueError(
+            f"in_tissue must contain only 0 or 1; found: {invalid_values}"
         )
     return positions.rename(columns={"array_row": "row", "array_col": "col"})
 
@@ -127,13 +137,14 @@ def merge_tissue_spots(
     missing = {"row", "col"}.difference(data.columns)
     if missing:
         raise ValueError(f"Spatial table is missing columns: {sorted(missing)}")
+    tissue_only = tissue_positions.loc[tissue_positions["in_tissue"] == 1]
     position_columns = [
         column
-        for column in tissue_positions.columns
+        for column in tissue_only.columns
         if column not in {"barcode", "row", "col"}
     ]
     return data.merge(
-        tissue_positions[["row", "col", *position_columns]],
+        tissue_only[["row", "col", *position_columns]],
         on=["row", "col"],
         how="inner",
     )
@@ -148,84 +159,28 @@ def mrna_matrix_output_path(mrna_path: Path) -> Path:
     )
 
 
-def write_tissue_filtered_mrna_matrix(
-    tissue_positions: pd.DataFrame,
-    mrna_path: Path,
-) -> Path:
-    if "barcode" not in tissue_positions.columns:
-        raise ValueError("Tissue-position file is missing column: barcode")
-
+def copy_compressed_mrna_matrix(mrna_path: Path) -> Path:
     raw_path = mrna_path / "raw"
-    matrix_file = raw_path / "matrix.mtx"
-    barcodes_file = raw_path / "barcodes.tsv"
-    features_file = raw_path / "features.tsv"
+    input_files = [
+        raw_path / "matrix.mtx",
+        raw_path / "barcodes.tsv",
+        raw_path / "features.tsv",
+    ]
     missing_files = [
-        path.name
-        for path in (matrix_file, barcodes_file, features_file)
-        if not path.is_file()
+        path.name for path in input_files if not path.is_file()
     ]
     if missing_files:
         raise FileNotFoundError(
             f"Uncompressed 10x files missing from {raw_path}: {missing_files}"
         )
 
-    matrix = mmread(matrix_file).tocsc()
-    barcodes = pd.read_csv(
-        barcodes_file,
-        sep="\t",
-        header=None,
-        dtype=str,
-        keep_default_na=False,
-    )
-    features = pd.read_csv(
-        features_file,
-        sep="\t",
-        header=None,
-        dtype=str,
-        keep_default_na=False,
-    )
-    if matrix.shape != (len(features), len(barcodes)):
-        raise ValueError(
-            f"10x matrix shape {matrix.shape} does not match "
-            f"{len(features)} features and {len(barcodes)} barcodes"
-        )
-    if barcodes.iloc[:, 0].duplicated().any():
-        raise ValueError(f"Duplicate barcodes found in {barcodes_file}")
-
-    tissue_barcodes = set(tissue_positions["barcode"].astype(str))
-    retained_columns = [
-        index
-        for index, barcode in enumerate(barcodes.iloc[:, 0])
-        if barcode in tissue_barcodes
-    ]
-    if not retained_columns:
-        raise ValueError("No tissue-position barcodes matched the mRNA matrix")
-
-    filtered_matrix = matrix[:, retained_columns].tocoo()
-    filtered_barcodes = barcodes.iloc[retained_columns].reset_index(drop=True)
     output_path = mrna_matrix_output_path(mrna_path)
     output_path.mkdir(parents=True, exist_ok=True)
-    with gzip.open(output_path / "matrix.mtx.gz", "wb") as handle:
-        mmwrite(handle, filtered_matrix, field="integer")
-    filtered_barcodes.to_csv(
-        output_path / "barcodes.tsv.gz",
-        sep="\t",
-        header=False,
-        index=False,
-        compression="gzip",
-    )
-    features.to_csv(
-        output_path / "features.tsv.gz",
-        sep="\t",
-        header=False,
-        index=False,
-        compression="gzip",
-    )
-    print(
-        f"Tissue-filtered matrix spots: {filtered_matrix.shape[1]}/"
-        f"{matrix.shape[1]}"
-    )
-    print(f"Wrote tissue-filtered 10x matrix: {output_path.resolve()}")
+    for input_file in input_files:
+        output_file = output_path / f"{input_file.name}.gz"
+        with input_file.open("rb") as source, gzip.open(output_file, "wb") as target:
+            shutil.copyfileobj(source, target)
+    print(f"Wrote compressed raw 10x matrix: {output_path.resolve()}")
     return output_path
 
 
@@ -396,10 +351,7 @@ def filter_mrna_by_tissue(
     print(f'Mean Gene: {filtered["gene_count"].mean()}')
     print(f'Median Gene: {filtered["gene_count"].median()}')
     print()
-    write_tissue_filtered_mrna_matrix(
-        tissue_positions,
-        mrna_path,
-    )
+    copy_compressed_mrna_matrix(mrna_path)
     plot_spatial_frames(filtered, method_path, frame_config)
     return output_file
 

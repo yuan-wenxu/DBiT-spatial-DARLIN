@@ -346,6 +346,11 @@ if [[ "$step" =~ ^(mrna|saturation|darlin|image)$ && -z "$input_path" ]]; then
     fi
     exit 1
 fi
+if [[ "$step" =~ ^(mrna|darlin|image)$ && -z "$selected_chip" ]]; then
+    echo "Error: --chip is required the first time; no chip is stored in $config_abs." >&2
+    echo "Run '$PROGRAM_NAME $step' again with --chip <name>. Valid chips: $(chip_preset_names_csv)." >&2
+    exit 1
+fi
 if [[ "$step" == mrna ]]; then
     if [[ -z ${genome_dir:-} ]]; then
         echo "Error: genome_dir must be set in $config_abs." >&2

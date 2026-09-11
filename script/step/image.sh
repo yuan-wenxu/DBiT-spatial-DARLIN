@@ -144,6 +144,11 @@ if [[ -n ${scratch:-} ]]; then
 fi
 
 tissue_positions_path="$result_path/tissue_positions.tsv.gz"
+grayscale_image_path="$result_path/fullres_grayscale.png"
+if [[ ! -f "$grayscale_image_path" ]]; then
+    echo "Error: full-resolution grayscale image is missing: $grayscale_image_path" >&2
+    exit 1
+fi
 filter_args=(
     python "$FILTER_SCRIPT"
     --tissue_positions_file "$tissue_positions_path"
@@ -184,9 +189,9 @@ if [[ -n ${mrna_dir:-} ]]; then
     fi
     mkdir -p "$mrna_matrix_dir" || exit 1
     cp -f -- "$tissue_positions_path" "$mrna_matrix_dir/tissue_positions.tsv.gz" || exit 1
-    cp -f -- "$image_path" "$mrna_matrix_dir/$image_name" || exit 1
+    cp -f -- "$grayscale_image_path" "$mrna_matrix_dir/fullres_grayscale.png" || exit 1
     echo "Copied tissue positions: $mrna_matrix_dir/tissue_positions.tsv.gz"
-    echo "Copied original image: $mrna_matrix_dir/$image_name"
+    echo "Copied grayscale image: $mrna_matrix_dir/fullres_grayscale.png"
 fi
 
 if [[ -n ${mrna_dir:-} ]]; then

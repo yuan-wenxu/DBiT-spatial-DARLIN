@@ -303,12 +303,14 @@ grayscale region is used.
 Main steps:
 
 1. Locate the frame bounding box from the adjacent mask.
-2. Crop the corresponding region from the full-resolution image.
-3. Generate a binary tissue mask within that region from image intensity,
+2. Convert the complete source image to grayscale and save it at the original
+   pixel dimensions.
+3. Crop the corresponding region from the full-resolution image.
+4. Generate a binary tissue mask within that region from image intensity,
    local signal density, morphology, and connected-region size.
-4. Evaluate each configured DBiT spot against the tissue mask and retain spots
-   whose tissue coverage is at least the internal threshold.
-5. Write the retained barcode indices and their center positions in the
+5. Evaluate each configured DBiT spot against the tissue mask and assign
+   `in_tissue=1` to tissue spots or `in_tissue=0` to non-tissue spots.
+6. Write every spot's barcode, tissue status, and center position in the
    coordinate system of the original full-resolution image.
 
 Implementation file:
@@ -317,37 +319,42 @@ Implementation file:
 script/step/python/image_segment.py
 ```
 
-`image_segment.py` contains frame detection, tissue-mask generation, spatial
-grid placement, and tissue-spot filtering. It does not segment or count cells.
+`image_segment.py` contains frame detection, full-resolution grayscale export,
+tissue-mask generation, spatial grid placement, and tissue-status assignment.
+It does not segment or count cells.
 
 Important outputs:
 
 ```text
 image/
+├── fullres_grayscale.png
 ├── tissue_mask.png
 └── tissue_positions.tsv.gz
 ```
 
+`fullres_grayscale.png` is a single-channel rendering of the complete source
+image and has exactly the same width and height as that source image.
 `tissue_mask.png` is cropped to the frame bounding box.
 `tissue_positions.tsv.gz` is the image-derived index used by the image step and
-contains `barcode`, `array_row`, `array_col`, `pxl_row_in_fullres`, and
-`pxl_col_in_fullres`. Barcodes are written in B+A sequence order. Pixel
-coordinates locate each retained spot center in the original image. Spots with
-less than the internal minimum tissue coverage are omitted from this file.
+contains `barcode`, `in_tissue`, `array_row`, `array_col`,
+`pxl_row_in_fullres`, and `pxl_col_in_fullres`, in that order. Barcodes are
+written in B+A sequence order. Pixel coordinates locate every spot center in
+the original image. Tissue spots use `in_tissue=1`; non-tissue spots use
+`in_tissue=0`.
 
 Tissue-mask thresholds and cleanup parameters are internal defaults; no
 additional user configuration is required.
 
 ### 5.2 Tissue Filtering and Visualization
 
-After segmentation, the image step joins the retained image-derived spot index
-with mRNA and/or DARLIN spatial results. Spots absent from
-`tissue_positions.tsv.gz` are removed.
+After segmentation, the image step selects rows with `in_tissue=1` and joins
+them with mRNA and/or DARLIN spatial results. The `in_tissue` column is retained
+in the filtered CSV outputs.
 
 After generating the tissue-position index, the image worker filters any mRNA
 or DARLIN result paths available in the shared dataset config:
 
-- `tissue_positions_file`: retained spot index, usually `image/tissue_positions.tsv.gz`
+- `tissue_positions_file`: all-spot tissue index, usually `image/tissue_positions.tsv.gz`
 - `tissue_mask_file`: frame-sized binary mask, usually `image/tissue_mask.png`
 - `mrna_dir`: STARsolo `GeneFull` directory
 - `darlin_dir`: DARLIN result directory
@@ -372,9 +379,9 @@ Key mRNA output:
 ```
 
 The image step reads the uncompressed `matrix.mtx`, `barcodes.tsv`, and
-`features.tsv` files from `GeneFull/raw`, then writes the tissue-filtered raw
-count matrix in compressed 10x format while preserving the original feature
-and barcode order:
+`features.tsv` files from `GeneFull/raw`, then copies their complete contents
+to compressed 10x files without filtering matrix columns. Tissue membership is
+recorded in `tissue_positions.tsv.gz` instead:
 
 ```text
 mrna/matrix/
@@ -382,12 +389,12 @@ mrna/matrix/
 ├── barcodes.tsv.gz
 ├── features.tsv.gz
 ├── tissue_positions.tsv.gz
-└── <original-image-name>
+└── fullres_grayscale.png
 ```
 
-The tissue-position file and original full-resolution image are copied into the
-same directory so the filtered matrix and its spatial context can be moved as
-one unit.
+The tissue-position file and full-resolution grayscale image are copied into
+the same directory so the matrix and its spatial context can be moved as one
+unit. The original color image is not copied into `mrna/matrix`.
 
 The only DARLIN filter output is written per locus:
 
@@ -419,6 +426,7 @@ sample_name/
 │       ├── RA/
 │       └── TA/
 └── image/
+    ├── fullres_grayscale.png
     ├── tissue_mask.png
     └── tissue_positions.tsv.gz
 ```
@@ -449,6 +457,7 @@ sample_name/
 4. Inspect image registration before trusting tissue-filtered plots:
 
    ```text
+   image/fullres_grayscale.png
    image/tissue_mask.png
    image/tissue_positions.tsv.gz
    ```

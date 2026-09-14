@@ -74,7 +74,15 @@ run_pixi() {
 
 merge_with_image() {
     local frame
-    local merge_args=(--image "$image_path" --mask "$frame_mask_path")
+    local merge_args=(
+        --image "$image_path"
+        --mask "$frame_mask_path"
+        --x_spots_number "$x_spots_number"
+        --y_spots_number "$y_spots_number"
+        --length_spot "$length_spot"
+        --interval "$interval"
+        --pixel_length "$pixel_length"
+    )
     for frame in "$@"; do
         merge_args+=(--frame "$frame")
     done

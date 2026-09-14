@@ -313,13 +313,18 @@ script/step/image.sh
 ### 5.1 Tissue Segmentation
 
 The image workflow accepts a full-resolution image. An adjacent `mask.png`
-with identical dimensions defines the spatial frame: its alpha channel is used
-when it contains both transparent and opaque pixels, otherwise its nonzero
-grayscale region is used.
+with identical canvas dimensions defines the spatial frame: its alpha channel
+is used when it contains both transparent and opaque pixels, otherwise its
+nonzero grayscale region is used. The visible mask may be smaller than the
+configured spatial frame when the frame extends beyond an image boundary. In
+that case, the touched boundary and configured grid dimensions determine the
+off-image part of the frame. A short mask extent that does not touch exactly one
+boundary is rejected because its alignment is ambiguous.
 
 Main steps:
 
-1. Locate the frame bounding box from the adjacent mask.
+1. Locate the visible frame bounding box from the adjacent mask and reconstruct
+   any portion clipped by an image boundary.
 2. Convert the complete source image to grayscale and save it at the original
    pixel dimensions.
 3. Crop the corresponding region from the full-resolution image.
@@ -351,7 +356,10 @@ image/
 
 `fullres_grayscale.png` is a single-channel rendering of the complete source
 image and has exactly the same width and height as that source image.
-`tissue_mask.png` is cropped to the frame bounding box.
+`tissue_mask.png` is cropped to the visible frame bounding box. Spots partly
+beyond the image are evaluated with the unavailable area treated as
+non-tissue. A spot whose center is outside the full-resolution image is always
+assigned `in_tissue=0`, regardless of its visible tissue fraction.
 `tissue_positions.tsv.gz` is the image-derived index used by the image step and
 contains `barcode`, `in_tissue`, `array_row`, `array_col`,
 `pxl_row_in_fullres`, and `pxl_col_in_fullres`, in that order. Barcodes are
@@ -422,9 +430,12 @@ The only DARLIN filter output is written per locus:
 
 The image worker passes the expected mRNA frame paths explicitly to
 `merge_on_image.py`.
-The script crops the original image to the mask bounding box, resizes that crop
-to the spatial-frame dimensions, and composites the overlay on top. It does not
-search directories for matching images.
+The script crops the original image to the visible mask bounding box. If the
+configured spatial frame crosses an image boundary, it first crops the overlay
+to the corresponding visible subsection (for example, a frame crossing the top
+and right boundaries retains its lower-left subsection). It then resizes the
+background crop to that subsection and composites the overlay on top. It does
+not search directories for matching images.
 
 The mRNA filtered-plot command writes to `filtered_plot.log` and prints the
 same output to the terminal.

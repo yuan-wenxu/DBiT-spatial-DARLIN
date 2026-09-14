@@ -40,8 +40,7 @@ identified. The mRNA FASTQ directory may contain one or more `*_R1.fq.gz` and
 from the same biological library. They are combined into one STARsolo result.
 
 The full-resolution image is passed to the image step. Its adjacent `mask.png`
-must have the same dimensions; the mask's nonzero/opaque region defines the
-DBiT frame in the full-resolution image.
+must have the same canvas dimensions; the mask's nonzero/opaque region defines the DBiT frame.
 
 ## Installation and configuration
 

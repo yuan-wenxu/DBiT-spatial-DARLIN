@@ -17,8 +17,10 @@ sample_name/
 ├── dbit.config.sh
 ├── transcriptome/
 │   └── fastq/
-│       ├── <sample>_R1.fq.gz
-│       └── <sample>_R2.fq.gz
+│       ├── <sample>_<lane1>_R1.fq.gz
+│       ├── <sample>_<lane1>_R2.fq.gz
+│       ├── <sample>_<lane2>_R1.fq.gz
+│       └── <sample>_<lane2>_R2.fq.gz
 ├── image/
 │   ├── <sample>.jpg
 │   └── mask.png
@@ -33,7 +35,9 @@ sample_name/
 ```
 
 The DARLIN filenames must contain `CA`, `RA`, or `TA` so the locus can be
-identified. The mRNA FASTQ directory must contain exactly one paired sample.
+identified. The mRNA FASTQ directory may contain one or more `*_R1.fq.gz` and
+`*_R2.fq.gz` pairs, but all pairs in that directory must be lanes or chunks
+from the same biological library. They are combined into one STARsolo result.
 
 The full-resolution image is passed to the image step. Its adjacent `mask.png`
 must have the same dimensions; the mask's nonzero/opaque region defines the

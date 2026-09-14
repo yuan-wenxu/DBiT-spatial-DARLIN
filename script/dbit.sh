@@ -47,7 +47,7 @@ Usage: $PROGRAM_NAME mrna [--config <file>] [options]
 
 Optional:
   --config <file>        Configuration file (default: ./dbit.config.sh)
-  --input <path>         Transcriptome FASTQ directory; required only before stored
+  --input <path>         One-library FASTQ directory with >=1 pair; required before stored
   --chip <name>          $(chip_preset_names_csv); required only before stored
   --umi-min <int>        Non-negative minimum UMI count per spot (default: 900)
   --gene-min <int>       Non-negative minimum gene count per spot (default: 300)
@@ -250,24 +250,26 @@ validate_fraction() {
     fi
 }
 
-validate_single_mrna_fastq_pair() {
+validate_mrna_fastq_pairs() {
     local input_dir=$1
     local -a r1_files=()
-    local r2_file
+    local r1_file r2_file
 
     mapfile -d '' -t r1_files < <(
-        find "$input_dir" -maxdepth 1 -type f -name '*_R1.fq.gz' -print0
+        find "$input_dir" -maxdepth 1 -type f -name '*_R1.fq.gz' -print0 | sort -z
     )
-    if (( ${#r1_files[@]} != 1 )); then
-        echo "Error: mRNA FASTQ directory must contain exactly one *_R1.fq.gz file; found ${#r1_files[@]} in $input_dir." >&2
+    if (( ${#r1_files[@]} == 0 )); then
+        echo "Error: mRNA FASTQ directory must contain at least one *_R1.fq.gz file: $input_dir." >&2
         exit 1
     fi
 
-    r2_file="${r1_files[0]%_R1.fq.gz}_R2.fq.gz"
-    if [[ ! -f "$r2_file" ]]; then
-        echo "Error: matching mRNA R2 file not found: $r2_file" >&2
-        exit 1
-    fi
+    for r1_file in "${r1_files[@]}"; do
+        r2_file="${r1_file%_R1.fq.gz}_R2.fq.gz"
+        if [[ ! -f "$r2_file" ]]; then
+            echo "Error: matching mRNA R2 file not found: $r2_file" >&2
+            exit 1
+        fi
+    done
 }
 
 validate_nonnegative_integer --umi-min "$cli_umi_min"
@@ -363,7 +365,7 @@ fi
 
 case "$step" in
     mrna)
-        validate_single_mrna_fastq_pair "$input_abs"
+        validate_mrna_fastq_pairs "$input_abs"
         output_path=$(dirname "$input_abs")
         if $input_from_cli; then
             set_config_value mrna_fastq_path "$input_abs"
@@ -375,7 +377,7 @@ case "$step" in
         [[ -n "$cli_min_cell" ]] && set_config_value min_cells "$cli_min_cell"
         ;;
     saturation)
-        validate_single_mrna_fastq_pair "$input_abs"
+        validate_mrna_fastq_pairs "$input_abs"
         ;;
     darlin)
         first_r1=$(find "$input_abs" -maxdepth 1 -type f -name '*_R1.fq.gz' -print -quit)

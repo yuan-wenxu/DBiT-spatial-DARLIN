@@ -55,9 +55,12 @@ script/step/mrna.sh
 
 ### 3.1 Preprocessing
 
-The input directory must contain exactly one `*_R1.fq.gz` file and its matching
-`*_R2.fq.gz` file. Both `dbit.sh` and the mRNA worker validate this requirement
-before processing. The worker then calls the shared preprocessing entry point:
+The input directory must contain one or more matching `*_R1.fq.gz` and
+`*_R2.fq.gz` pairs. All pairs in one directory are treated as lanes or chunks
+of the same biological library and are combined into one STARsolo result. Both
+`dbit.sh` and the mRNA worker require a matching R2 for every discovered R1.
+Additional R2 files without a matching R1 are ignored.
+The worker calls the shared preprocessing entry point once per pair:
 
 ```text
 script/step/python/preprocess.py
@@ -69,6 +72,11 @@ Main operations:
 2. Extract barcode and UMI sequence.
 3. Optionally correct barcode components against the whitelist.
 4. Write barcode/UMI FASTQ files for downstream STARsolo processing.
+
+Each pair keeps separate preprocessing outputs and a manifest containing the
+input file metadata and relevant preprocessing parameters. This supports
+per-pair restart while invalidating stale outputs when an input or parameter
+changes.
 
 Important parameters:
 
@@ -94,6 +102,13 @@ Important parameters:
 --soloFeatures GeneFull
 ```
 
+After every input pair has been preprocessed, the worker supplies the
+comma-separated R2 files as the cDNA input and the corresponding
+comma-separated R1 files as the final barcode/UMI input to one STAR invocation.
+The input ordering is deterministic. `results/star_input_manifest.tsv` records
+the complete ordered input set and key STARsolo parameters; complete STAR
+outputs are reused only when that manifest still matches.
+
 STARsolo cell calling is disabled. Downstream mRNA QC uses only the `raw`
 matrix and applies the configured UMI, gene-count, and minimum-spot filters
 before clustering.
@@ -109,7 +124,7 @@ STAR outputs are written under:
 <output_path>/results/Solo.out/GeneFull/
 ```
 
-When incomplete STAR outputs are cleaned before a rerun.
+Incomplete or outdated STAR outputs are cleaned before a rerun.
 
 ### 3.3 mRNA QC and Clustering
 
@@ -175,17 +190,19 @@ In `frame_umap.png`, coordinate `(row=0, col=0)` is at the upper-right corner.
 
 ### 3.4 Saturation analysis
 
-`dbit saturation` reuses `mrna_fastq_path` stored by the mRNA step. The single
-`script/step/saturation.sh` worker uses `seqtk sample` with the same seed
-for both reads of every FASTQ pair, then invokes the complete mRNA worker once
-for each fraction. The same exactly-one-pair validation is applied before
-downsampling. Outputs follow this layout:
+`dbit saturation` reuses `mrna_fastq_path` stored by the mRNA step. The
+`script/step/saturation.sh` worker uses `seqtk sample` with the same seed for
+both reads of every FASTQ pair, then invokes the complete mRNA worker once for
+each fraction. All downsampled pairs for a fraction are combined into one
+STARsolo result. Outputs follow this layout:
 
 ```text
 <mRNA FASTQ parent>/saturation/<fraction>/
 ├── fastq/
-│   ├── <sample>_<fraction>_R1.fq.gz
-│   └── <sample>_<fraction>_R2.fq.gz
+│   ├── <chunk1>_<fraction>_R1.fq.gz
+│   ├── <chunk1>_<fraction>_R2.fq.gz
+│   ├── <chunk2>_<fraction>_R1.fq.gz
+│   └── <chunk2>_<fraction>_R2.fq.gz
 ├── fastq_umi_barcode/
 └── results/Solo.out/GeneFull/
 ```

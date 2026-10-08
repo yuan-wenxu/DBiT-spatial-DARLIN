@@ -59,10 +59,17 @@ trap 'exit 143' TERM HUP
 mkdir -p "$output_path"
 echo "=== Starting saturation downsampling ==="
 
-for r1 in "$fastq_path"/*_R1.fq.gz; do
-    [[ -e "$r1" ]] || { echo "Error: no *_R1.fq.gz files found in $fastq_path" >&2; exit 1; }
-    sample_name=$(basename "$r1" _R1.fq.gz)
-    r2="$fastq_path/${sample_name}_R2.fq.gz"
+shopt -s nullglob
+r1_files=("$fastq_path"/*_R1.fq.gz "$fastq_path"/*_R1.fastq.gz)
+shopt -u nullglob
+if (( ${#r1_files[@]} == 0 )); then
+    echo "Error: no *_R1.fq.gz or *_R1.fastq.gz files found in $fastq_path" >&2
+    exit 1
+fi
+for r1 in "${r1_files[@]}"; do
+    sample_name=${r1##*/}
+    sample_name=${sample_name%_R1.*}
+    r2="${r1%_R1.*}_R2.${r1##*_R1.}"
     if [[ ! -f "$r2" ]]; then
         echo "Error: matching R2 file not found for $r1: $r2" >&2
         exit 1

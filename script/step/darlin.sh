@@ -177,11 +177,22 @@ else
     file_path="$fastq_path"
 fi
 
-for r1 in "$file_path"/*_R1.fq.gz; do
-    [ -e "$r1" ] || { echo "Error: no *_R1.fq.gz files found in $file_path" >&2; exit 1; }
-    sample_name=$(basename $r1 | sed 's/_R1.fq.gz//')
+shopt -s nullglob
+r1_files=("$file_path"/*_R1.fq.gz "$file_path"/*_R1.fastq.gz)
+shopt -u nullglob
+if (( ${#r1_files[@]} == 0 )); then
+    echo "Error: no *_R1.fq.gz or *_R1.fastq.gz files found in $file_path" >&2
+    exit 1
+fi
+for r1 in "${r1_files[@]}"; do
+    sample_name=${r1##*/}
+    sample_name=${sample_name%_R1.*}
     locus=$(echo "$sample_name" | grep -oE 'CA|RA|TA')
-    r2=$file_path/$sample_name"_R2.fq.gz"
+    r2="${r1%_R1.*}_R2.${r1##*_R1.}"
+    if [[ ! -f "$r2" ]]; then
+        echo "Error: matching DARLIN R2 file not found: $r2" >&2
+        exit 1
+    fi
 
     # Cutadapt and extract UMI and barcode
     preprocess_r1="$r1"

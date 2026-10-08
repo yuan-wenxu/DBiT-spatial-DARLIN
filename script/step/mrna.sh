@@ -120,10 +120,10 @@ fi
 orig_output_path="$output_path"
 
 shopt -s nullglob
-r1_files=("$fastq_path"/*_R1.fq.gz)
+r1_files=("$fastq_path"/*_R1.fq.gz "$fastq_path"/*_R1.fastq.gz)
 shopt -u nullglob
 if (( ${#r1_files[@]} == 0 )); then
-    echo "Error: mRNA FASTQ directory must contain at least one *_R1.fq.gz file: $fastq_path." >&2
+    echo "Error: mRNA FASTQ directory must contain at least one *_R1.fq.gz or *_R1.fastq.gz file: $fastq_path." >&2
     exit 1
 fi
 for fastq_file in "${r1_files[@]}"; do
@@ -196,8 +196,9 @@ preprocessed_r1_files=()
 preprocessed_r2_files=()
 
 for r1 in "${r1_files[@]}"; do
-    sample_name=$(basename "$r1" _R1.fq.gz)
-    r2_orig="$fastq_path/${sample_name}_R2.fq.gz"
+    sample_name=${r1##*/}
+    sample_name=${sample_name%_R1.*}
+    r2_orig="${r1%_R1.*}_R2.${r1##*_R1.}"
     if [[ ! -f "$r2_orig" ]]; then
         echo "Error: matching mRNA R2 file not found: $r2_orig" >&2
         exit 1
@@ -221,8 +222,8 @@ for r1 in "${r1_files[@]}"; do
         if $use_scratch; then
             mkdir -p "$scratch_input" "$scratch_output"
             cp "$r1" "$r2_orig" "$scratch_input/"
-            step1_r1="$scratch_input/${sample_name}_R1.fq.gz"
-            step1_r2="$scratch_input/${sample_name}_R2.fq.gz"
+            step1_r1="$scratch_input/${r1##*/}"
+            step1_r2="$scratch_input/${r2_orig##*/}"
             step1_out="$scratch_output"
             step1_log="$scratch_output/${sample_name}_preprocess.log"
         else
@@ -285,7 +286,7 @@ star_manifest_content() {
         printf 'pair\t%s\n' "$index"
         preprocess_manifest_content \
             "${r1_files[index]}" \
-            "${r1_files[index]%_R1.fq.gz}_R2.fq.gz"
+            "${r1_files[index]%_R1.*}_R2.${r1_files[index]##*_R1.}"
         file_signature "${preprocessed_r1_files[index]}"
         file_signature "${preprocessed_r2_files[index]}"
     done

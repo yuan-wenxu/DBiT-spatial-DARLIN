@@ -56,7 +56,9 @@ script/step/mrna.sh
 ### 3.1 Preprocessing
 
 The input directory must contain one or more matching `*_R1.fq.gz` and
-`*_R2.fq.gz` pairs. All pairs in one directory are treated as lanes or chunks
+`*_R2.fq.gz` pairs, or `*_R1.fastq.gz` and `*_R2.fastq.gz` pairs. R1 and R2
+must use the same extension within each pair; different pairs may use different
+extensions. All pairs in one directory are treated as lanes or chunks
 of the same biological library and are combined into one STARsolo result. Both
 `dbit.sh` and the mRNA worker require a matching R2 for every discovered R1.
 Additional R2 files without a matching R1 are ignored.

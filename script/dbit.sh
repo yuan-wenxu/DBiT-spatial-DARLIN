@@ -256,15 +256,15 @@ validate_mrna_fastq_pairs() {
     local r1_file r2_file
 
     mapfile -d '' -t r1_files < <(
-        find "$input_dir" -maxdepth 1 -type f -name '*_R1.fq.gz' -print0 | sort -z
+        find "$input_dir" -maxdepth 1 -type f \( -name '*_R1.fq.gz' -o -name '*_R1.fastq.gz' \) -print0 | sort -z
     )
     if (( ${#r1_files[@]} == 0 )); then
-        echo "Error: mRNA FASTQ directory must contain at least one *_R1.fq.gz file: $input_dir." >&2
+        echo "Error: mRNA FASTQ directory must contain at least one *_R1.fq.gz or *_R1.fastq.gz file: $input_dir." >&2
         exit 1
     fi
 
     for r1_file in "${r1_files[@]}"; do
-        r2_file="${r1_file%_R1.fq.gz}_R2.fq.gz"
+        r2_file="${r1_file%_R1.*}_R2.${r1_file##*_R1.}"
         if [[ ! -f "$r2_file" ]]; then
             echo "Error: matching mRNA R2 file not found: $r2_file" >&2
             exit 1
@@ -380,9 +380,9 @@ case "$step" in
         validate_mrna_fastq_pairs "$input_abs"
         ;;
     darlin)
-        first_r1=$(find "$input_abs" -maxdepth 1 -type f -name '*_R1.fq.gz' -print -quit)
+        first_r1=$(find "$input_abs" -maxdepth 1 -type f \( -name '*_R1.fq.gz' -o -name '*_R1.fastq.gz' \) -print -quit)
         if [[ -z "$first_r1" ]]; then
-            echo "Error: no *_R1.fq.gz file found in $input_abs" >&2
+            echo "Error: no *_R1.fq.gz or *_R1.fastq.gz file found in $input_abs" >&2
             exit 1
         fi
         output_path=$(dirname "$input_abs")
